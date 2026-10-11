@@ -130,7 +130,18 @@ describe("TelegramNestService - Tag Feature", () => {
       });
     }
     function discovery(dialogs: any[]) {
-      return dialogs;
+      const entities = dialogs.map((dialog) => dialog.entity);
+      return {
+        messages: [],
+        chats: entities.filter((entity) => !(entity instanceof Api.User)),
+        users: entities.filter((entity) => entity instanceof Api.User),
+        myResults: entities.map((entity) => entity instanceof Api.Channel
+          ? new Api.PeerChannel({ channelId: entity.id })
+          : entity instanceof Api.Chat
+            ? new Api.PeerChat({ chatId: entity.id })
+            : new Api.PeerUser({ userId: entity.id })),
+        results: [],
+      };
     }
     let client: any;
     beforeEach(() => {
@@ -139,8 +150,8 @@ describe("TelegramNestService - Tag Feature", () => {
       jest.spyOn(service as any, "performGlobalSearch").mockResolvedValue([]);
       client = {
         connected: true,
-        getDialogs: jest.fn().mockResolvedValue(discovery([channel("Friends - HD")])),
-        invoke: jest.fn(),
+        getDialogs: jest.fn(),
+        invoke: jest.fn().mockResolvedValue(discovery([channel("Friends - HD")])),
         getMessages: jest.fn().mockResolvedValue([video("season 1 episode 2.mp4")]),
       };
     });
@@ -166,8 +177,9 @@ describe("TelegramNestService - Tag Feature", () => {
       expect(queries).not.toContain("episode 2");
       expect(client.getMessages).toHaveBeenCalledWith(
         expect.any(Api.Channel), expect.objectContaining({ limit: 150 }));
-      expect(client.getDialogs).toHaveBeenCalledTimes(1);
-      expect(client.invoke).not.toHaveBeenCalled();
+      expect(client.getDialogs).not.toHaveBeenCalled();
+      expect(client.invoke.mock.calls.map(([request]: any[]) => request.q).sort()).toEqual(["friends", "חברים"]);
+      for (const [request] of client.invoke.mock.calls) expect(request).toBeInstanceOf(Api.messages.SearchGlobal);
     });
 
     it("never runs when normal search has a usable result", async () => {
@@ -199,7 +211,7 @@ describe("TelegramNestService - Tag Feature", () => {
       const group = { title: "חֲבֵרִים | HD", entity: fixture(Api.Chat.prototype, {
         id: bigInt(456), title: "חֲבֵרִים | HD",
       }) };
-      client.getDialogs.mockResolvedValue(discovery([
+      client.invoke.mockResolvedValue(discovery([
         channel("MyFriends"), channel("Friend"), channel("Other series"), group,
         { title: "Friends", entity: fixture(Api.User.prototype, { id: bigInt(789) }) },
       ]));
@@ -209,7 +221,7 @@ describe("TelegramNestService - Tag Feature", () => {
     });
 
     it("accepts original titles and normalizes punctuation without partial title matching", async () => {
-      client.getDialogs.mockResolvedValue(discovery([channel("Breaking | Bad HD"), channel("Breaking HD", 456)]));
+      client.invoke.mockResolvedValue(discovery([channel("Breaking | Bad HD"), channel("Breaking HD", 456)]));
       const details = { ...media, title: "Other", localizedTitle: null, originalTitle: "Breaking-Bad" };
       const results = await service.searchMedia(client, "Other", details, user);
       expect(results).toHaveLength(1);
@@ -235,7 +247,7 @@ describe("TelegramNestService - Tag Feature", () => {
         localizedTitle: "פרירן: מעבר לסוף המסע", originalTitle: "葬送のフリーレン",
         episodeInfo: { season: 1, episode: 1 },
       };
-      client.getDialogs.mockResolvedValue(discovery([channel("פרירן - ערוץ ראשי")]));
+      client.invoke.mockResolvedValue(discovery([channel("פרירן - ערוץ ראשי")]));
       client.getMessages.mockResolvedValue([
         video("1.mp4", 5, "עונה 1 פרק 1"),
         video("11.mp4", 15, "עונה 1 פרק 11"),
@@ -355,7 +367,7 @@ describe("TelegramNestService - Tag Feature", () => {
     });
 
     it("skips failed channels and continues searching other matches", async () => {
-      client.getDialogs.mockResolvedValue(discovery([channel("Friends failed"), channel("Friends HD", 456)]));
+      client.invoke.mockResolvedValue(discovery([channel("Friends failed"), channel("Friends HD", 456)]));
       client.getMessages.mockImplementation(async (entity: Api.Channel) => {
         if (entity.id.toString() === "123") throw new Error("channel inaccessible");
         return [video("s1e2.mp4")];
@@ -367,7 +379,7 @@ describe("TelegramNestService - Tag Feature", () => {
 
     it("tries episode-only queries only after all channels have no exact matches", async () => {
       const entities = [channel("Friends HD"), channel("Friends backup", 456)];
-      client.getDialogs.mockResolvedValue(discovery(entities));
+      client.invoke.mockResolvedValue(discovery(entities));
       const onlyEpisode = new Set(["episode 2", "episode 02", "e2", "e02", "פרק 2", "פרק 02", "פ2", "פ02"]);
       client.getMessages.mockImplementation(async (_entity: Api.Channel, { search }: any) =>
         onlyEpisode.has(search) ? [video("פרק 02.mkv")] : [],
@@ -399,7 +411,7 @@ describe("TelegramNestService - Tag Feature", () => {
       [2, "Friends season 2", "S01E02.mp4", false],
       [1, "Friends", "S01E02 season 2.mp4", false],
     ])("validates season %s in %s with %s", async (season, title, fileName, accepted) => {
-      client.getDialogs.mockResolvedValue(discovery([channel(title)]));
+      client.invoke.mockResolvedValue(discovery([channel(title)]));
       client.getMessages.mockResolvedValue([video(fileName)]);
       const results = await service.searchMedia(client, "Friends", {
         ...media, episodeInfo: { season, episode: 2 },
@@ -410,7 +422,7 @@ describe("TelegramNestService - Tag Feature", () => {
     it("deduplicates joined peers and retains access hashes", async () => {
       const entity = channel("Friends").entity;
       entity.accessHash = bigInt(987);
-      client.getDialogs.mockResolvedValue([{ entity }, { entity }]);
+      client.invoke.mockResolvedValue(discovery([{ entity }, { entity }]));
       await service.searchMedia(client, "Friends", { ...media }, user);
       for (const [searched] of client.getMessages.mock.calls) expect(searched).toBe(entity);
       const queries = client.getMessages.mock.calls.map(([, options]: any[]) => options.search);
@@ -419,52 +431,134 @@ describe("TelegramNestService - Tag Feature", () => {
 
     it("keeps groups and channels with colliding IDs distinct", async () => {
       const group = fixture(Api.Chat.prototype, { id: bigInt(123), title: "Friends group" });
-      client.getDialogs.mockResolvedValue([channel("Friends"), { entity: group }]);
+      client.invoke.mockResolvedValue(discovery([channel("Friends"), { entity: group }]));
       await service.searchMedia(client, "Friends", { ...media }, user);
       expect(new Set(client.getMessages.mock.calls.map(([entity]: any[]) => entity)).size).toBe(2);
     });
 
-    it("searches only matching joined channels and excludes left channels", async () => {
+    it("searches joined chats while excluding non-member matches and left peers", async () => {
       const left = channel("Friends left", 456);
       left.entity.left = true;
-      client.getDialogs.mockResolvedValue([channel("Friends joined"), left, channel("Other show", 789)]);
-      client.invoke.mockResolvedValue({ chats: [channel("Friends public", 999).entity] });
+      const personal = discovery([channel("Friends joined"), left, channel("Other show", 789)]);
+      const publicChannel = channel("Friends public", 999).entity;
+      publicChannel.left = true;
+      client.invoke.mockResolvedValue({
+        ...personal,
+        chats: [...personal.chats, publicChannel],
+        results: [new Api.PeerChannel({ channelId: publicChannel.id })],
+      });
       const results = await service.searchMedia(client, "Friends", { ...media }, user);
       expect(results[0].channelTitle).toBe("Friends joined");
-      expect(client.invoke).not.toHaveBeenCalled();
+      expect(client.getDialogs).not.toHaveBeenCalled();
       for (const [entity] of client.getMessages.mock.calls) expect(entity.id.toString()).toBe("123");
     });
 
-    it("reuses joined channels across different episode searches", async () => {
-      await service.searchMedia(client, "Friends", { ...media }, user);
-      await service.searchMedia(client, "Friends", { ...media, episodeInfo: { season: 1, episode: 3 } }, user);
-      expect(client.getDialogs).toHaveBeenCalledTimes(1);
+    it("returns no fallback results when only global chats match", async () => {
+      const publicChannel = channel("Friends public").entity;
+      publicChannel.left = true;
+      client.invoke.mockResolvedValue({
+        chats: [publicChannel], myResults: [],
+        results: [new Api.PeerChannel({ channelId: publicChannel.id })], users: [],
+      });
+      expect(await service.searchMedia(client, "Friends", { ...media }, user)).toEqual([]);
+      expect(client.getMessages).not.toHaveBeenCalled();
+      expect(client.getDialogs).not.toHaveBeenCalled();
     });
 
-    it("shares concurrent discovery and refreshes joined channels after five minutes", async () => {
+    it("keeps membership and peer types distinct when channel and group IDs collide", async () => {
+      const group = fixture(Api.Chat.prototype, { id: bigInt(123), title: "Friends group" });
+      client.invoke.mockResolvedValue({
+        chats: [fixture(Api.Channel.prototype, {
+          id: bigInt(123), title: "Friends public", left: true,
+        }), group],
+        myResults: [new Api.PeerChat({ chatId: group.id })], results: [], users: [],
+      });
+      await service.searchMedia(client, "Friends", { ...media }, user);
+      for (const [entity] of client.getMessages.mock.calls) expect(entity).toBe(group);
+    });
+
+    it("finds tt32612521:1:2 through title-only messages when contacts search has no matches", async () => {
+      const entity = channel("[AnimeIL-TV] - גאצ'יאקוטה - אנימה אייאל טיוי").entity;
+      entity.left = false;
+      client.invoke.mockImplementation(async (request: any) => request instanceof Api.contacts.Search
+        ? { chats: [], myResults: [], users: [], results: [] }
+        : {
+        chats: [entity], myResults: [], users: [],
+        results: [new Api.PeerChannel({ channelId: entity.id })],
+      });
+      client.getMessages.mockImplementation(async (_entity: Api.Channel, { search }: any) =>
+        search === "פרק 2" ? [video("Gachiakuta Episode 2 [AnimeIL-TV].mp4", 8, "גאצ'יאקוטה - פרק 2")] : [],
+      );
+      const details = {
+        ...media, imdbId: "tt32612521", title: "Gachiakuta",
+        localizedTitle: "גאצ'יאקוטה", originalTitle: "ガチアクタ",
+      };
+      const results = await service.searchMedia(client, details.localizedTitle, details, user);
+      expect(results).toHaveLength(1);
+      expect(results[0]).toMatchObject({
+        chatId: "123", messageId: 8, season: 1, episode: 2,
+      });
+      expect(client.getDialogs).not.toHaveBeenCalled();
+      for (const [request] of client.invoke.mock.calls) {
+        expect(request).toBeInstanceOf(Api.messages.SearchGlobal);
+        expect(request.filter).toBeInstanceOf(Api.InputMessagesFilterEmpty);
+      }
+    });
+
+    it("excludes min channel results with unknown membership", async () => {
+      const entity = channel("Friends public").entity;
+      entity.min = true;
+      client.invoke.mockResolvedValue({
+        chats: [entity], myResults: [], users: [],
+        results: [new Api.PeerChannel({ channelId: entity.id })],
+      });
+      expect(await service.searchMedia(client, "Friends", { ...media }, user)).toEqual([]);
+      expect(client.getMessages).not.toHaveBeenCalled();
+    });
+
+    it("reuses title chat matches across different episode searches", async () => {
+      await service.searchMedia(client, "Friends", { ...media }, user);
+      await service.searchMedia(client, "Friends", { ...media, episodeInfo: { season: 1, episode: 3 } }, user);
+      expect(client.invoke).toHaveBeenCalledTimes(2);
+      expect(client.getDialogs).not.toHaveBeenCalled();
+    });
+
+    it("shares concurrent title discovery and refreshes it after five minutes", async () => {
       const now = jest.spyOn(Date, "now").mockReturnValue(1000);
       try {
         await Promise.all([
-          (service as any).getJoinedSeriesChannels(client),
-          (service as any).getJoinedSeriesChannels(client),
+          (service as any).getSeriesChatMatches(client, "friends"),
+          (service as any).getSeriesChatMatches(client, "friends"),
         ]);
-        expect(client.getDialogs).toHaveBeenCalledTimes(1);
+        expect(client.invoke).toHaveBeenCalledTimes(1);
         now.mockReturnValue(1000 + 5 * 60 * 1000);
-        await (service as any).getJoinedSeriesChannels(client);
-        expect(client.getDialogs).toHaveBeenCalledTimes(2);
-        const otherClient = { getDialogs: jest.fn().mockResolvedValue([]) };
-        expect(await (service as any).getJoinedSeriesChannels(otherClient)).toEqual([]);
-        expect(otherClient.getDialogs).toHaveBeenCalledTimes(1);
+        await (service as any).getSeriesChatMatches(client, "friends");
+        expect(client.invoke).toHaveBeenCalledTimes(2);
+        const otherClient = { invoke: jest.fn().mockResolvedValue(discovery([])) };
+        expect(await (service as any).getSeriesChatMatches(otherClient, "friends")).toEqual([]);
+        expect(otherClient.invoke).toHaveBeenCalledTimes(1);
+        await (service as any).getSeriesChatMatches(client, "other");
+        expect(client.invoke).toHaveBeenCalledTimes(3);
       } finally {
         now.mockRestore();
       }
     });
 
-    it("retries joined-channel discovery after a failure", async () => {
-      client.getDialogs.mockRejectedValueOnce(new Error("discovery failed"));
-      expect(await service.searchMedia(client, "Friends", { ...media }, user)).toEqual([]);
+    it("retries failed title discovery and caches empty chat matches", async () => {
+      client.invoke.mockRejectedValueOnce(new Error("discovery failed"));
+      await expect((service as any).getSeriesChatMatches(client, "friends")).rejects.toThrow("discovery failed");
+      client.invoke.mockResolvedValue(discovery([]));
+      expect(await (service as any).getSeriesChatMatches(client, "friends")).toEqual([]);
+      expect(await (service as any).getSeriesChatMatches(client, "friends")).toEqual([]);
+      expect(client.invoke).toHaveBeenCalledTimes(2);
+    });
+
+    it("continues other title searches when one discovery query fails", async () => {
+      client.invoke.mockImplementation(async ({ q }: any) => {
+        if (q === "friends") throw new Error("discovery failed");
+        return discovery([channel("חברים")]);
+      });
       expect(await service.searchMedia(client, "Friends", { ...media }, user)).toHaveLength(1);
-      expect(client.getDialogs).toHaveBeenCalledTimes(2);
     });
 
     it("limits request concurrency to two and stops scheduling at the result limit", async () => {
@@ -475,7 +569,7 @@ describe("TelegramNestService - Tag Feature", () => {
         await new Promise((resolve) => setImmediate(resolve));
         active--;
       };
-      client.getDialogs.mockImplementation(async () => {
+      client.invoke.mockImplementation(async () => {
         await track();
         return discovery([channel("Friends"), channel("Friends backup", 456), channel("Friends third", 789)]);
       });
@@ -499,7 +593,7 @@ describe("TelegramNestService - Tag Feature", () => {
     });
 
     it("handles channel discovery errors gracefully", async () => {
-      client.getDialogs.mockRejectedValue(new Error("discovery failed"));
+      client.invoke.mockRejectedValue(new Error("discovery failed"));
       expect(await service.searchMedia(client, "Friends", { ...media }, user)).toEqual([]);
     });
   });

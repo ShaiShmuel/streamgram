@@ -68,10 +68,10 @@ const TITLE_SPLIT_SYMBOLS = [":", "-"];
 export class TelegramNestService {
   private readonly activeControllers = new Set<AbortController>();
   private readonly downloadCooldowns = new WeakMap<TelegramClient, number>();
-  private readonly joinedChannelCache = new WeakMap<TelegramClient, {
+  private readonly seriesChatSearchCache = new WeakMap<TelegramClient, Map<string, {
     expiresAt: number;
     channels: Promise<Array<Api.Channel | Api.Chat>>;
-  }>();
+  }>>();
 
   private TELEGRAM_CONFIG: any;
   private LANGUAGE_CONFIG: any;
@@ -1510,32 +1510,57 @@ export class TelegramNestService {
       .trim();
   }
 
-  private async getJoinedSeriesChannels(client: TelegramClient): Promise<Array<Api.Channel | Api.Chat>> {
-    const cached = this.joinedChannelCache.get(client);
-    if (cached && cached.expiresAt > Date.now()) return cached.channels;
+  private async getSeriesChatMatches(
+    client: TelegramClient,
+    title: string,
+  ): Promise<Array<Api.Channel | Api.Chat>> {
+    let cache = this.seriesChatSearchCache.get(client);
+    if (!cache) {
+      cache = new Map();
+      this.seriesChatSearchCache.set(client, cache);
+    }
+    for (const [key, entry] of cache) {
+      if (entry.expiresAt <= Date.now()) cache.delete(key);
+    }
+    const cached = cache.get(title);
+    if (cached) return cached.channels;
 
-    // Share discovery across concurrent episode searches and retain live entities.
+    // A title-only message search discovers joined private chats that contacts.Search omits.
     const entry = {
       expiresAt: Infinity,
-      channels: client.getDialogs({}).then((dialogs) => {
-        const channels = new Map<string, Api.Channel | Api.Chat>();
-        for (const dialog of dialogs) {
-          const entity = dialog.entity;
-          if (!(entity instanceof Api.Channel || entity instanceof Api.Chat) || entity.left) continue;
-          if (entity instanceof Api.Chat && entity.deactivated) continue;
-          const kind = entity instanceof Api.Channel ? "channel" : "chat";
-          channels.set(`${kind}:${entity.id}`, entity);
-        }
-        return [...channels.values()];
+      channels: client.invoke(new Api.messages.SearchGlobal({
+        q: title,
+        filter: new Api.InputMessagesFilterEmpty(),
+        minDate: 0,
+        maxDate: 0,
+        offsetRate: 0,
+        offsetPeer: new Api.InputPeerEmpty(),
+        offsetId: 0,
+        limit: this.SEARCH_CONFIG.globalSearchLimit,
+      })).then((found) => {
+        if (!("chats" in found)) return [];
+        const channels = found.chats.filter((entity): entity is Api.Channel | Api.Chat => {
+          if (!(entity instanceof Api.Channel || entity instanceof Api.Chat) || entity.left) return false;
+          if (entity instanceof Api.Chat && entity.deactivated) return false;
+          // Min entities do not reliably carry membership.
+          return !(entity instanceof Api.Channel && entity.min);
+        });
+        logger.info({
+          query: title,
+          returnedMessageCount: "messages" in found ? found.messages.length : 0,
+          returnedChatCount: found.chats.length,
+          joinedMatchCount: channels.length,
+        }, "Series chat name search completed");
+        return channels;
       }),
     };
-    this.joinedChannelCache.set(client, entry);
+    cache.set(title, entry);
     try {
       const channels = await entry.channels;
       entry.expiresAt = Date.now() + 5 * 60 * 1000;
       return channels;
     } catch (error) {
-      this.joinedChannelCache.delete(client);
+      cache.delete(title);
       throw error;
     }
   }
@@ -1614,22 +1639,25 @@ export class TelegramNestService {
         }
       }));
     };
-    let channels: Array<Api.Channel | Api.Chat>;
-    try {
-      channels = (await this.getJoinedSeriesChannels(client)).filter((entity) => {
-        const normalized = ` ${this.normalizeSearchText(entity.title)} `;
-        return [...titles].some((title) => normalized.includes(` ${title} `));
-      });
-    } catch (error) {
-      logger.warn({ error }, "Joined series channel discovery failed");
-      return [];
-    }
+    const channels = new Map<string, Api.Channel | Api.Chat>();
+    await runWorkers([...titles], async (title) => {
+      try {
+        for (const entity of await this.getSeriesChatMatches(client, title)) {
+          const normalized = ` ${this.normalizeSearchText(entity.title)} `;
+          if (![...titles].some((candidate) => normalized.includes(` ${candidate} `))) continue;
+          const kind = entity instanceof Api.Channel ? "channel" : "chat";
+          channels.set(`${kind}:${entity.id}`, entity);
+        }
+      } catch (error) {
+        logger.warn({ title, error }, "Series title chat discovery failed");
+      }
+    });
 
     let results: MediaSearchResult[] = [];
     const target = this.SEARCH_RESULTS.series.totalResults;
     const failedChannels = new Set<Api.Channel | Api.Chat>();
     const searchPhase = async (phaseQueries: Set<string>, episodeOnly: boolean) => {
-      await runWorkers(channels, async (entity) => {
+      await runWorkers([...channels.values()], async (entity) => {
         if (failedChannels.has(entity)) return;
         const channelTitle = entity.title;
         for (const query of phaseQueries) {
