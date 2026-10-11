@@ -68,6 +68,10 @@ const TITLE_SPLIT_SYMBOLS = [":", "-"];
 export class TelegramNestService {
   private readonly activeControllers = new Set<AbortController>();
   private readonly downloadCooldowns = new WeakMap<TelegramClient, number>();
+  private readonly joinedChannelCache = new WeakMap<TelegramClient, {
+    expiresAt: number;
+    channels: Promise<Array<Api.Channel | Api.Chat>>;
+  }>();
 
   private TELEGRAM_CONFIG: any;
   private LANGUAGE_CONFIG: any;
@@ -1506,6 +1510,36 @@ export class TelegramNestService {
       .trim();
   }
 
+  private async getJoinedSeriesChannels(client: TelegramClient): Promise<Array<Api.Channel | Api.Chat>> {
+    const cached = this.joinedChannelCache.get(client);
+    if (cached && cached.expiresAt > Date.now()) return cached.channels;
+
+    // Share discovery across concurrent episode searches and retain live entities.
+    const entry = {
+      expiresAt: Infinity,
+      channels: client.getDialogs({}).then((dialogs) => {
+        const channels = new Map<string, Api.Channel | Api.Chat>();
+        for (const dialog of dialogs) {
+          const entity = dialog.entity;
+          if (!(entity instanceof Api.Channel || entity instanceof Api.Chat) || entity.left) continue;
+          if (entity instanceof Api.Chat && entity.deactivated) continue;
+          const kind = entity instanceof Api.Channel ? "channel" : "chat";
+          channels.set(`${kind}:${entity.id}`, entity);
+        }
+        return [...channels.values()];
+      }),
+    };
+    this.joinedChannelCache.set(client, entry);
+    try {
+      const channels = await entry.channels;
+      entry.expiresAt = Date.now() + 5 * 60 * 1000;
+      return channels;
+    } catch (error) {
+      this.joinedChannelCache.delete(client);
+      throw error;
+    }
+  }
+
   private async searchSeriesChannelFallback(
     client: TelegramClient,
     media: MediaDetails,
@@ -1519,12 +1553,17 @@ export class TelegramNestService {
         .filter((title): title is string => Boolean(title))
         // Channels often use only the name before a subtitle separator.
         // Keep hyphenated names intact (e.g. "Breaking-Bad").
-        .flatMap((title) => [title, this.prepareSearchTitle(title), this.extractTitleFirstPart(title)])
+        .flatMap((title) => [
+          title,
+          this.prepareSearchTitle(title),
+          /:|\s+-/.test(title) ? this.extractTitleFirstPart(title) : null,
+        ])
         .filter((title): title is string => Boolean(title))
         .map((title) => this.normalizeSearchText(title))
         .filter(Boolean),
     );
-    const { season, episode } = media.episodeInfo;
+    const episodeInfo = media.episodeInfo;
+    const { season, episode } = episodeInfo;
     const seasonPadded = String(season).padStart(2, "0");
     const episodePadded = String(episode).padStart(2, "0");
     const languageConfigs = [
@@ -1554,22 +1593,47 @@ export class TelegramNestService {
       }
     }
 
-    const results: MediaSearchResult[] = [];
-    try {
-      const dialogs = await client.getDialogs({});
-      for (const dialog of dialogs) {
-        const entity = dialog.entity;
-        if (!(entity instanceof Api.Channel || entity instanceof Api.Chat)) {
-          continue;
-        }
-        const channelTitle = dialog.title || entity.title;
-        const normalized = ` ${this.normalizeSearchText(channelTitle)} `;
-        if (![...titles].some((title) => normalized.includes(` ${title} `))) {
-          continue;
-        }
+    const episodeQueries = new Set<string>();
+    for (const config of languageConfigs) {
+      for (const term of config.episodeTerms.long) {
+        episodeQueries.add(`${term} ${episode}`);
+        episodeQueries.add(`${term} ${episodePadded}`);
+      }
+      for (const term of config.episodeTerms.short) {
+        episodeQueries.add(`${term}${episode}`);
+        episodeQueries.add(`${term}${episodePadded}`);
+      }
+    }
 
-        for (const query of queries) {
-          if (!client.connected) return this.removeDuplicates(results, media);
+    // Workers share a queue so at most two Telegram requests are in flight.
+    const runWorkers = async <T>(items: T[], task: (item: T) => Promise<void>) => {
+      let next = 0;
+      await Promise.all(Array.from({ length: Math.min(2, items.length) }, async () => {
+        while (next < items.length && client.connected) {
+          await task(items[next++]);
+        }
+      }));
+    };
+    let channels: Array<Api.Channel | Api.Chat>;
+    try {
+      channels = (await this.getJoinedSeriesChannels(client)).filter((entity) => {
+        const normalized = ` ${this.normalizeSearchText(entity.title)} `;
+        return [...titles].some((title) => normalized.includes(` ${title} `));
+      });
+    } catch (error) {
+      logger.warn({ error }, "Joined series channel discovery failed");
+      return [];
+    }
+
+    let results: MediaSearchResult[] = [];
+    const target = this.SEARCH_RESULTS.series.totalResults;
+    const failedChannels = new Set<Api.Channel | Api.Chat>();
+    const searchPhase = async (phaseQueries: Set<string>, episodeOnly: boolean) => {
+      await runWorkers(channels, async (entity) => {
+        if (failedChannels.has(entity)) return;
+        const channelTitle = entity.title;
+        for (const query of phaseQueries) {
+          if (!client.connected || results.length >= target) return;
           try {
             const messages = await client.getMessages(entity, {
               search: query,
@@ -1577,20 +1641,13 @@ export class TelegramNestService {
               filter: new Api.InputMessagesFilterEmpty(),
             });
             for (const message of messages) {
-              if (
-                !(message instanceof Api.Message) ||
-                !this.isVideoFromSearchResult(message)
-              ) {
-                continue;
-              }
+              if (!(message instanceof Api.Message) || !this.isVideoFromSearchResult(message)) continue;
               const fileName = this.extractFileNameFromSearchResult(message);
               const caption = message.message || null;
               const text = `${fileName || ""} ${caption || ""}`;
-              if (
-                !this.matchesSeasonEpisode(text, media.episodeInfo, user.language)
-              ) {
-                continue;
-              }
+              if (!this.matchesSeriesChannelEpisode(
+                text, channelTitle, episodeInfo, user.language, episodeOnly,
+              )) continue;
               results.push({
                 chatId: this.normalizeChatId(entity.id.toString()),
                 channelTitle,
@@ -1604,19 +1661,57 @@ export class TelegramNestService {
                 episode,
               });
             }
+            results = this.removeDuplicates(results, media);
           } catch (error) {
-            logger.warn(
-              { channelTitle, query, error },
-              "Series channel fallback search failed",
-            );
-            break; // Skip inaccessible/failed channels, continue with the others.
+            logger.warn({ channelTitle, query, error }, "Series channel fallback search failed");
+            failedChannels.add(entity);
+            return;
           }
         }
-      }
-    } catch (error) {
-      logger.warn({ error }, "Series channel fallback discovery failed");
+      });
+    };
+    await searchPhase(queries, false);
+    if (results.length === 0 && client.connected) {
+      await searchPhase(episodeQueries, true);
     }
-    return this.removeDuplicates(results, media);
+    return this.removeDuplicates(results, media).slice(0, target);
+  }
+
+  private matchesSeriesChannelEpisode(
+    text: string,
+    channelTitle: string,
+    episodeInfo: EpisodeInfo,
+    language: string,
+    episodeOnly: boolean,
+  ): boolean {
+    const configs = [
+      this.LANGUAGE_CONFIG.languages.en,
+      this.LANGUAGE_CONFIG.languages[language],
+    ].filter(Boolean);
+    const normalizedText = this.normalizeSearchText(text);
+    const normalizedChannel = this.normalizeSearchText(channelTitle);
+    // Explicit conflicting seasons in either the message or channel take precedence.
+    const seasonsIn = (value: string): number[] => configs.flatMap((config) => {
+      const long = config.seasonTerms.long.map((term: string) => `${this.escapeRegex(term)}\\s+`);
+      const short = config.seasonTerms.short.map((term: string) => `${this.escapeRegex(term)}\\s*`);
+      const pattern = new RegExp(
+        `(?:^|[^\\p{L}\\p{N}])(?:${[...long, ...short].join("|")})([0-9]+)(?![0-9])`, "gu",
+      );
+      return [...value.matchAll(pattern)].map((match) => Number(match[1]));
+    });
+    const messageSeasons = seasonsIn(normalizedText);
+    const channelSeasons = seasonsIn(normalizedChannel);
+    if ([...messageSeasons, ...channelSeasons].some((value) => value !== episodeInfo.season)) return false;
+    if (this.matchesSeasonEpisode(text, episodeInfo, language)) return true;
+    if (!episodeOnly) return false;
+    if (episodeInfo.season !== 1 && !channelSeasons.includes(episodeInfo.season)) return false;
+    return configs.some((config) => {
+      const long = config.episodeTerms.long.map((term: string) => `${this.escapeRegex(term)}\\s+`);
+      const short = config.episodeTerms.short.map((term: string) => `${this.escapeRegex(term)}\\s*`);
+      return new RegExp(
+        `(?:^|[^\\p{L}\\p{N}])(?:${[...long, ...short].join("|")})0*${episodeInfo.episode}(?![\\p{L}\\p{N}])`, "u",
+      ).test(normalizedText);
+    });
   }
 
   private escapeRegex(str: string): string {
