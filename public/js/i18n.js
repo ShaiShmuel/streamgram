@@ -1,5 +1,29 @@
 import { ru, ar } from "./translations.js";
 const he = {
+  "Server settings": "הגדרות שרת",
+  "Admin settings": "הגדרות מנהל",
+
+  "Forgot password": "שכחת סיסמה",
+  "Reset admin password": "איפוס סיסמת מנהל",
+  "New password": "סיסמה חדשה",
+  "Confirm new password": "אישור סיסמה חדשה",
+  "Save password and sign in": "שמירת סיסמה וכניסה",
+  "Request a new reset link": "בקשת קישור איפוס חדש",
+  "Passwords do not match": "הסיסמאות אינן תואמות",
+  "Password changed": "הסיסמה שונתה",
+  "Could not save password. Try again.": "לא ניתן לשמור את הסיסמה. נסו שוב.",
+  "Reset link is invalid or expired. Request a new link.": "קישור האיפוס אינו תקין או שפג תוקפו. בקשו קישור חדש.",
+  "This link can be used once and expires in 10 minutes.": "הקישור מיועד לשימוש חד־פעמי ותוקפו יפוג בעוד 10 דקות.",
+  "If recovery is configured, check your Telegram notification chat. The link expires in 10 minutes.": "אם שחזור סיסמה מוגדר, בדקו את צ׳אט ההתראות בטלגרם. תוקף הקישור הוא 10 דקות.",
+  "Admin password recovery": "שחזור סיסמת מנהל",
+  "Enable password recovery": "הפעלת שחזור סיסמה",
+  "Private recovery chat ID": "מזהה צ׳אט פרטי לשחזור",
+  "Recovery uses the same bot and destination chat as notifications. It requires an HTTPS public URL and works even when alerts are disabled.": "שחזור משתמש באותו בוט ובאותו צ׳אט יעד כמו ההתראות. הוא דורש כתובת HTTPS ציבורית ופועל גם כשההתראות כבויות.",
+  "Password recovery requires a configured HTTPS public URL": "שחזור סיסמה דורש כתובת HTTPS ציבורית מוגדרת",
+  "Password recovery requires a bot token, notification chat ID, and HTTPS public URL": "שחזור סיסמה דורש טוקן בוט, מזהה צ׳אט התראות וכתובת HTTPS ציבורית",
+  "Recovery uses the notification chat; check its chat ID and bot access": "שחזור משתמש בצ׳אט ההתראות; בדקו את מזהה הצ׳אט וגישה לבוט",
+  "Notification settings changed; try again": "הגדרות ההתראות השתנו; נסו שוב",
+  "Telegram recovery test failed; check notification chat and bot access": "בדיקת שחזור בטלגרם נכשלה; בדקו את צ׳אט ההתראות וגישה לבוט",
   "Telegram notifications": "התראות טלגרם",
   "Enable Telegram notifications": "הפעלת התראות טלגרם",
   "Bot token": "טוקן הבוט",
@@ -31,7 +55,7 @@ const he = {
   "Regenerate QR code": "יצירת קוד QR חדש",
   "Connections need attention": "יש בעיות בחיבורים",
   "Connections could not be verified": "לא ניתן לאמת את החיבורים",
-  "Open Settings": "פתיחת ההגדרות",
+  "Open server settings": "פתיחת הגדרות שרת",
   "Configuration checks": "בדיקות הגדרות",
   "Check again": "בדיקה חוזרת",
   "Checking…": "בודק…",
@@ -157,14 +181,14 @@ const he = {
     "התחברו אל my.telegram.org באמצעות חשבון הטלגרם שלכם.",
   "Open API development tools and create an app if Telegram asks for one.":
     "פתחו את API development tools וצרו אפליקציה אם טלגרם מבקשת זאת.",
-  "Copy both values into the Instance credentials section in StreamGram Settings.":
+  "Copy both values into the Instance credentials section in StreamGram Server settings.":
     "העתיקו את שני הערכים לאזור פרטי המופע בהגדרות StreamGram.",
   "Save your settings.": "שמרו את ההגדרות.",
   "Sign in to your TMDB account.": "התחברו לחשבון ה־TMDB שלכם.",
   "Open Settings → API.": "פתחו הגדרות ← API.",
   "Create or copy the API Read Access Token (v4).":
     "צרו או העתיקו את טוקן הגישה לקריאת נתונים (v4).",
-  "Paste the token into the TMDB bearer token field in StreamGram Settings.":
+  "Paste the token into the TMDB bearer token field in StreamGram Server settings.":
     "הדביקו את הטוקן בשדה טוקן ה־TMDB בהגדרות StreamGram.",
   "Open Telegram API portal": "פתיחת פורטל ה־API של טלגרם",
   "Open TMDB API settings": "פתיחת הגדרות ה־API של TMDB",
@@ -297,7 +321,7 @@ const he = {
   "Connect a Telegram account": "חברו חשבון טלגרם",
   "Your API credentials are set. Add a Telegram account to start streaming in Stremio.":
     "פרטי ה־API הוגדרו. הוסיפו חשבון טלגרם כדי להתחיל לצפות בסטרימיו.",
-  "Finish instance credentials in Settings to enable streaming.":
+  "Finish instance credentials in Server settings to enable streaming.":
     "השלימו את פרטי המופע בהגדרות כדי לאפשר צפייה.",
   "Share link": "שיתוף קישור",
   "Sources loaded": "המקורות נטענו",

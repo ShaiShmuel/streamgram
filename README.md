@@ -30,6 +30,7 @@
 - [Server Configuration & Setup](#server-configuration--setup)
 - [Tag Any Video to a Catalog Item](#tag-any-video-to-a-catalog-item)
 - [Environment Variables](#environment-variables)
+- [Optional Admin Features](#optional-admin-features)
 - [Disclaimer](#disclaimer)
 
 ---
@@ -184,7 +185,7 @@ The Stremio addon needs a publicly reachable **domain and HTTPS** for addon and 
 
    Caddy automatically obtains and renews a trusted TLS certificate and redirects HTTP to HTTPS. See [Caddy's HTTPS guide](https://caddyserver.com/docs/quick-starts/https).
 
-5. **Set StreamGram's public URL.** Open `https://streamgram.example.com` and enter it in the setup wizard, or update **Settings** for an existing instance. Before first-run setup, you can also use `.env`:
+5. **Set StreamGram's public URL.** Open `https://streamgram.example.com` and enter it in the setup wizard, or update **Server settings** for an existing instance. Before first-run setup, you can also use `.env`:
 
    ```dotenv
    PUBLIC_URL=https://streamgram.example.com
@@ -208,7 +209,7 @@ sudo tailscale funnel status
 
 Follow any Funnel approval link and replace `3000` if you use a different host port. For Docker, use the published host port. `--bg` keeps Funnel running after the terminal closes.
 
-Copy the HTTPS URL printed by Funnel into the setup wizard's public URL field (or **Settings** for an existing instance). Alternatively, set it in `.env` before first-run setup:
+Copy the HTTPS URL printed by Funnel into the setup wizard's public URL field (or **Server settings** for an existing instance). Alternatively, set it in `.env` before first-run setup:
 
 ```dotenv
 PUBLIC_URL=https://streamgram.example-tailnet.ts.net
@@ -220,20 +221,20 @@ Open that URL to finish setup and install the addon. Keep admin protection enabl
 
 ## Server Configuration & Setup
 
-1. **Protect management.** New setups enable admin protection by default. Set a password of at least eight characters. Disabling protection makes management accessible to anyone who can reach the instance.
+1. **Choose admin protection (optional).** Enabled by default; use a password of at least eight characters, or disable it if you do not need it. Without protection, anyone who can reach the instance can manage it.
 2. **Configure the instance.** Enter the public HTTPS URL, Telegram API ID/hash from [my.telegram.org](https://my.telegram.org), and TMDB v4 Read Access Token from [TMDB settings](https://www.themoviedb.org/settings/api). Environment values prefill the wizard; blank secrets preserve saved values.
 3. **Connect Telegram.** Authenticate using QR or phone code, including Telegram two-step verification when required.
 4. **Install in Stremio.** Use the prominent install button or copy `https://your-domain/{user_token}/manifest.json`. Folder/channel catalogs are optional; you can install before selecting any.
 
-After initialization, `/` opens the admin dashboard with Overview, Accounts, Invitations, Settings, and Tutorials. Admins can connect accounts directly or create seven-day, single-use invitations. Copy an invitation when it is created; its secret is not shown again.
+After initialization, `/` opens the admin dashboard with Overview, Accounts, Invitations, Server settings, Admin settings, and Tutorials. Admins can connect accounts directly or create seven-day, single-use invitations. Copy an invitation when it is created; its secret is not shown again.
 
 Each account has a personal page at `/{user_token}/configure` (the existing `/?action=settings&token=…` link also works). It manages only that account's display name, search language, optional catalogs, reconnection, and deletion. Personal language inherits the instance default unless overridden. English, Hebrew, Russian, and Arabic search remain supported; the dashboard supports all four languages, with RTL for Hebrew and Arabic. English is always searched; selecting Hebrew, Russian, or Arabic adds searches in that language. The instance search language defaults to English. During first-run setup, the search-language dropdown initially matches the dashboard language.
 
 Set the dashboard language using `?lng=en`, `?lng=he`, `?lng=ru`, or `?lng=ar` (for example, `https://yourdomain.com/?lng=he`). For links that already have query parameters, append `&lng=he`. A valid URL language overrides the saved browser preference; otherwise the dashboard uses the saved preference or English. The dashboard language selector updates the URL and saves the preference. Interface language and search language can be changed independently.
 
-Private account links grant access without a separate user password. Protected management uses an eight-hour browser session; legacy `X-Admin-Password` clients remain supported. Existing installations without an admin password stay unprotected until you enable protection in Settings. Removing all accounts never reopens public first-run setup.
+Private account links grant access without a separate user password. Protected management uses an eight-hour browser session; legacy `X-Admin-Password` clients remain supported. Existing installations without an admin password stay unprotected until you enable protection in Admin settings. Removing all accounts never reopens public first-run setup.
 
-Settings includes backup/restore. Backups contain private Telegram sessions. Restore preserves current admin credentials/protection, replaces accounts/preferences, and invalidates invitations and browser sessions. See [authentication and access documentation](docs/AUTHENTICATION.md) for API details.
+**Server settings** contains instance credentials, default search language, connection checks, and cache controls. **Admin settings** contains password protection, Telegram notifications/recovery, and backup/restore. Backups contain private Telegram sessions. Restore preserves current admin credentials/protection, replaces accounts/preferences, and invalidates invitations and browser sessions. See [authentication and access documentation](docs/AUTHENTICATION.md) for API details.
 
 ---
 
@@ -270,7 +271,18 @@ All values below are optional when using the setup wizard. Saved values in `data
 | `PREFERRED_LANGUAGE` | `en`, `he`, `ru`, or `ar`; defaults to `en`.                                                         |
 | `PORT`               | HTTP port; defaults to `3000`.                                                                       |
 
-Admin password authentication blocks an IP for 15 minutes after five failures within 15 minutes. Login and `x-admin-password` requests share the counter; successful password verification resets it. Existing browser sessions remain usable. Counters are held in memory and reset on restart.
+---
+
+## Optional Admin Features
+
+Admin protection, Telegram notifications, password recovery, and backups are **optional**. Configure them in **Admin settings**; a notification bot is not required for streaming.
+
+- **Password protection:** enabled by default; you can disable it or change the password.
+- **Telegram notifications:** add a [BotFather](https://t.me/BotFather) bot token and destination chat ID, choose alerts, save, and click **Send test notification**. The bot needs permission to send messages in that chat.
+- **Password recovery:** enable it with notifications. **Forgot password** sends a single-use link to the same chat, valid for **10 minutes**. Recovery requires an HTTPS public URL and works even when routine alerts are disabled. Anyone with access to the chat can use the link.
+- **Backup & restore:** download or restore instance backups. Backups contain private Telegram sessions and bot tokens; store them securely.
+
+See [authentication and access documentation](docs/AUTHENTICATION.md) for details.
 
 ---
 
@@ -278,37 +290,3 @@ Admin password authentication blocks an IP for 15 minutes after five failures wi
 
 > [!WARNING]
 > StreamGram is a bridge, not a media library. It does not host, upload, or distribute any content. You choose the Telegram sources your account can access and are solely responsible for using this software in compliance with applicable law, copyright permissions, Telegram's Terms of Service, and the terms of your client or provider.
-
----
-
-### Telegram admin notifications
-
-In **Admin → Settings → Telegram notifications**, configure a Telegram bot token
-from [BotFather](https://t.me/BotFather) and one destination chat ID. Start a
-private conversation with the bot, or add it to a group/channel with permission
-to send messages. Send it a message and use Telegram's
-[`getUpdates`](https://core.telegram.org/bots/api#getupdates) method to find
-`message.chat.id` (a channel's public `@username` also works). Keep the bot token
-private; a dedicated notification bot avoids interference from other consumers
-of its updates.
-
-Save the settings and click **Send test notification**, then enable alerts and
-choose account joins/deletions, successful admin browser logins, failed admin
-passwords, or admin password lockouts. Tests use saved settings even while alerts
-are disabled. Reconnecting an existing Telegram account does not count as a join.
-Password alerts also cover the legacy admin password header; successful header
-checks and session refreshes do not generate login alerts.
-
-Alerts use English and include a UTC timestamp and instance URL. Account alerts
-show a name and the last four phone digits; login alerts show the connection IP.
-No private account links, passwords, or Telegram session strings are sent.
-Notifications do not require a connected Telegram user account.
-
-Delivery runs in memory: failed passwords are limited to one alert per IP per
-minute, messages to one per second, and the queue to 100 pending messages. Failed
-transient deliveries retry up to three total attempts. Alerts may be lost on
-restart or dropped when the queue fills. Changing notification settings clears
-pending alerts. The admin settings card shows the latest delivery result when
-loaded or after a test. Backups include the bot token and notification settings;
-store them securely. Restoring a backup restores notification settings without
-emitting account alerts.

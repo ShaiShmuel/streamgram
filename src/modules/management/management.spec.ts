@@ -1,3 +1,6 @@
+import { securityHeaders } from "../../common/middleware/security-headers";
+import { PasswordResetService } from "./password-reset.service";
+import { NotificationsService } from "../notifications/notifications.service";
 import { ConfigurationChecksService } from "../setup/configuration-checks.service";
 import { Test } from "@nestjs/testing";
 import { INestApplication } from "@nestjs/common";
@@ -461,6 +464,7 @@ describe("HTTP management and personal access", () => {
       .useValue(clients)
       .compile();
     app = module.createNestApplication({ logger: false });
+    app.use(securityHeaders);
     app.useGlobalPipes(new RequestValidationPipe());
     await app.listen(0, "127.0.0.1");
     base = await app.getUrl();
@@ -487,6 +491,7 @@ describe("HTTP management and personal access", () => {
     ["/admin/notifications", "GET"],
     ["/admin/notifications", "PUT"],
     ["/admin/notifications/test", "POST"],
+    ["/admin/notifications/recovery-test", "POST"],
     ["/setup/admin-status", "GET"],
     ["/setup/checks", "POST"],
     ["/setup/config", "POST"],
@@ -511,6 +516,52 @@ describe("HTTP management and personal access", () => {
     expect([400, 401]).toContain(result.status);
     // Valid auth payloads reach the principal check; management guards run before DTO validation.
     if (!path.startsWith("/auth/qr")) expect(result.status).toBe(401);
+  });
+  it("prevents framing, inline dashboard scripts, and caching admin secrets", async () => {
+    const page = await fetch(base);
+    expect(page.headers.get("x-frame-options")).toBe("DENY");
+    expect(page.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(page.headers.get("content-security-policy")).toContain("frame-ancestors 'none'");
+    expect(page.headers.get("content-security-policy")).toContain("script-src 'self'");
+    expect(page.headers.get("referrer-policy")).toBe("no-referrer");
+    expect(page.headers.get("cache-control")).toBe("no-store");
+    for (const path of ["/admin/accounts", "/admin/notifications", "/setup/config/export"]) {
+      const result = await fetch(base + path, { headers: { cookie } });
+      expect(result.status).toBe(200);
+      expect(result.headers.get("cache-control")).toBe("no-store");
+      await result.arrayBuffer();
+    }
+    // Unauthenticated requests must never retrieve a backup or notification credentials.
+    const backup = await request("/setup/config/export");
+    expect(backup.status).toBe(401);
+    expect(JSON.stringify(backup.data)).not.toContain("adminPasswordHash");
+  });
+  it("blocks Fetch Metadata cross-site mutations even without an Origin header", async () => {
+    for (const path of ["/admin/password-reset/request", "/admin/login", "/admin/notifications/test", "/setup/config/import"]) {
+      expect((await request(path, "POST", {}, { cookie, "sec-fetch-site": "cross-site" })).status).toBe(403);
+    }
+  });
+  it("protects public recovery mutations by origin and signs in after a reset", async () => {
+    await config.update({ publicUrl: "https://stream.example" });
+    config.updateNotificationSettings({ enabled: false, events: [], botToken: "123:secret", passwordRecoveryEnabled: true, chatId: "-10012345" });
+    let resetToken = "";
+    jest.spyOn(app.get(NotificationsService), "sendRecovery").mockImplementation(async (text: string) => {
+      resetToken = /reset-password=([A-Za-z0-9_-]{43})/.exec(text)?.[1] ?? "missing-token"; return true;
+    });
+    expect((await request("/admin/password-reset/request", "POST", undefined, { origin: "https://evil.example" })).status).toBe(403);
+    const result = await request("/admin/password-reset/request", "POST");
+    expect(result.status).toBe(200);
+    expect(result.data).toEqual({ success: true });
+    expect(JSON.stringify(result.data)).not.toContain(resetToken);
+    expect((await request("/admin/password-reset/complete", "POST", { token: resetToken, password: "new-password" }, { origin: "https://evil.example" })).status).toBe(403);
+    expect((await request("/admin/password-reset/complete", "POST", { token: resetToken, password: "short" })).status).toBe(400);
+    const completed = await request("/admin/password-reset/complete", "POST", { token: resetToken, password: "new-password" });
+    expect(completed.status).toBe(200);
+    const newCookie = (completed.cookie ?? "").split(";")[0];
+    expect((await request("/admin/accounts", "GET", undefined, { cookie })).status).toBe(401);
+    expect((await request("/admin/accounts", "GET", undefined, { cookie: newCookie })).status).toBe(200);
+    expect((await request("/admin/password-reset/complete", "POST", { token: resetToken, password: "other-password" })).status).toBe(400);
+    expect(app.get(PasswordResetService)).toBeDefined();
   });
   it("protects notification settings, validates inputs, and never returns the bot token", async () => {
     const user = await config.createOrUpdateUser("+12345678", "session");

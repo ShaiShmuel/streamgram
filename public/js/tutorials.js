@@ -29,7 +29,7 @@ const tutorials = [
         <ol>
           <li>${t("Sign in to my.telegram.org using your Telegram account.")}</li>
           <li>${t("Open API development tools and create an app if Telegram asks for one.")}</li>
-          <li>${t("Copy both values into the Instance credentials section in StreamGram Settings.")}</li>
+          <li>${t("Copy both values into the Instance credentials section in StreamGram Server settings.")}</li>
           <li>${t("Save your settings.")}</li>
         </ol>
       </section>
@@ -61,7 +61,7 @@ const tutorials = [
           <li>${t("Sign in to your TMDB account.")}</li>
           <li>${t("Open Settings → API.")}</li>
           <li>${t("Create or copy the API Read Access Token (v4).")}</li>
-          <li>${t("Paste the token into the TMDB bearer token field in StreamGram Settings.")}</li>
+          <li>${t("Paste the token into the TMDB bearer token field in StreamGram Server settings.")}</li>
         </ol>
       </section>
       <p class="tutorial-links">

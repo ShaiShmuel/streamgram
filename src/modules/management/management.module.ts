@@ -1,3 +1,6 @@
+import { NotificationsModule } from "../notifications/notifications.module";
+import { PasswordResetService } from "./password-reset.service";
+import { PasswordResetController } from "./password-reset.controller";
 import { Global, Module } from "@nestjs/common";
 import { APP_GUARD } from "@nestjs/core";
 import { ManagementService } from "./management.service";
@@ -14,10 +17,11 @@ import { AuthModule } from "../auth/auth.module";
 
 @Global()
 @Module({
-  imports: [AuthModule],
-  controllers: [ManagementController, InvitationController],
+  imports: [AuthModule, NotificationsModule],
+  controllers: [ManagementController, InvitationController, PasswordResetController],
   providers: [
     ManagementService,
+    PasswordResetService,
     AdminGuard,
     PersonalGuard,
     { provide: APP_GUARD, useClass: ManagementOriginGuard },

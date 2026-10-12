@@ -3,7 +3,7 @@ import "dotenv/config";
 import { NestFactory } from "@nestjs/core";
 import { RequestValidationPipe } from "./common/pipes/request-validation.pipe";
 import { SwaggerModule, DocumentBuilder } from "@nestjs/swagger";
-import { Request, Response, NextFunction } from "express";
+import { securityHeaders } from "./common/middleware/security-headers";
 import { AppModule } from "./app.module";
 import { logger } from "./logger";
 import { InstanceConfigService } from "./modules/user/instance-config.service";
@@ -17,17 +17,7 @@ async function bootstrap() {
     logger: ["error", "warn", "log"],
   });
   app.enableShutdownHooks();
-  app.use((request: Request, response: Response, next: NextFunction) => {
-    response.setHeader("Referrer-Policy", "no-referrer");
-    if (
-      /^\/(admin|auth|setup|settings|name|folders|channels|telegram-status|invitations|cache)(\/|$)/.test(
-        request.path,
-      )
-    ) {
-      response.setHeader("Cache-Control", "no-store");
-    }
-    next();
-  });
+  app.use(securityHeaders);
 
   // Enable validation globally
   app.useGlobalPipes(new RequestValidationPipe());

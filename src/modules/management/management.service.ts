@@ -14,6 +14,8 @@ const COOKIE = "streamgram_admin";
 const SESSION_MS = 8 * 60 * 60 * 1000;
 const PASSWORD_WINDOW_MS = 15 * 60 * 1000;
 const MAX_PASSWORD_FAILURES = 5;
+const MAX_TRACKED_IPS = 1000;
+const MAX_SESSIONS = 1000;
 
 @Injectable()
 export class ManagementService {
@@ -28,7 +30,9 @@ export class ManagementService {
     }
     // Use the connection IP; do not trust client-supplied forwarding headers.
     const ip = request.ip || request.socket.remoteAddress || "unknown";
-    let failure = this.passwordFailures.get(ip);
+    // Keep a shared overflow bucket instead of allocating unbounded per-IP state.
+    const key = this.passwordFailures.has(ip) || this.passwordFailures.size < MAX_TRACKED_IPS ? ip : "overflow";
+    let failure = this.passwordFailures.get(key);
     const rejectBlocked = (expires: number) => {
       const retryAfter = Math.ceil((expires - now) / 1000);
       request.res?.setHeader("Retry-After", String(retryAfter));
@@ -43,7 +47,7 @@ export class ManagementService {
     };
     if (failure && failure.count >= MAX_PASSWORD_FAILURES) rejectBlocked(failure.expires);
     if (this.config.verifyAdminPassword(password)) {
-      this.passwordFailures.delete(ip);
+      this.passwordFailures.delete(key);
       return true;
     }
     failure = {
@@ -51,12 +55,14 @@ export class ManagementService {
       expires: failure?.expires ?? now + PASSWORD_WINDOW_MS,
     };
     if (failure.count >= MAX_PASSWORD_FAILURES) failure.expires = now + PASSWORD_WINDOW_MS;
-    this.passwordFailures.set(ip, failure);
+    this.passwordFailures.set(key, failure);
     this.config.publishNotification({ type: "admin_password_failed", ip });
     if (failure.count >= MAX_PASSWORD_FAILURES) this.config.publishNotification({ type: "admin_lockout", ip });
     if (failure.count >= MAX_PASSWORD_FAILURES) rejectBlocked(failure.expires);
     return false;
   }
+
+  clearPasswordFailures() { this.passwordFailures.clear(); }
 
   private cookie(request: Request): string | undefined {
     return request.headers.cookie
@@ -80,8 +86,12 @@ export class ManagementService {
 
   issueSession(request: Request, response: Response): string {
     const old = this.cookie(request);
-    const wasAuthenticated = this.sessionWasValid(old);
+    const wasAuthenticated = Boolean(this.session(request));
     if (old) this.sessions.delete(old);
+    if (this.sessions.size >= MAX_SESSIONS) {
+      const oldest = this.sessions.keys().next().value;
+      if (oldest) this.sessions.delete(oldest);
+    }
     const id = randomBytes(32).toString("base64url");
     this.sessions.set(id, {
       expires: Date.now() + SESSION_MS,
@@ -98,11 +108,6 @@ export class ManagementService {
       this.config.publishNotification({ type: "admin_login", ip: request.ip || request.socket.remoteAddress || "unknown" });
     }
     return id;
-  }
-
-  private sessionWasValid(id: string | undefined): boolean {
-    const session = id ? this.sessions.get(id) : undefined;
-    return Boolean(session && session.expires > Date.now() && session.revision === this.config.securityRevision);
   }
 
   logout(request: Request, response: Response) {

@@ -1,3 +1,4 @@
+import { passwordReset } from "./password-reset.js";
 import { t, applyLanguage } from "./i18n.js";
 import { $, api, button, errorMessage, shell } from "./shared.js";
 import { personal } from "./personal.js";
@@ -6,6 +7,11 @@ import { setup, invitation } from "./setup.js";
 applyLanguage();
 async function start() {
   const params = new URLSearchParams(location.search);
+  if (location.hash.startsWith("#reset-password=")) {
+    const token = location.hash.slice("#reset-password=".length);
+    history.replaceState(null, "", location.pathname + location.search);
+    return passwordReset(token);
+  }
   // Route before fetching bootstrap/admin data, even with an existing admin cookie.
   if (params.has("token") || params.get("action") === "settings") {
     if (!params.get("token")) throw new Error("Missing personal account link");

@@ -437,7 +437,7 @@ test('signed-in admins edit the account name in the original preferences form', 
 
 function notificationsHarness(respond, connected = true) {
   const nodes = new Map();
-  for (const selector of ['form', 'button.primary', '#notifications-enabled', '#notification-bot-token', '#notification-chat-id', '#notification-test', '#notification-delivery']) {
+  for (const selector of ['form', 'button.primary', '#notifications-enabled', '#notification-bot-token', '#notification-chat-id', '#notification-test', '#notification-delivery', '#recovery-enabled']) {
     nodes.set(selector, { value: '', checked: false, placeholder: '', textContent: '' });
   }
   nodes.get('form').querySelector = selector => nodes.get(selector);
@@ -510,5 +510,179 @@ test('notification settings copy has translations in every supported dashboard l
   for (const lang of ['he', 'ru', 'ar']) {
     const missing = Array.from(vm.runInContext(`['Telegram notifications', 'Enable Telegram notifications', 'Bot token', 'Destination chat ID', 'Notification types', 'Account joined', 'Account deleted', 'Successful admin login', 'Failed admin password', 'Admin password lockout', 'Send test notification', 'Telegram message sent'].filter(key => !${lang}[key])`, context));
     assert.deepEqual(missing, []);
+  }
+});
+
+test('reset fragment is captured and removed before any normal bootstrap or personal routing', async () => {
+  const calls = [];
+  const context = vm.createContext({
+    URLSearchParams, location: { hash: '#reset-password=secret', pathname: '/', search: '?token=personal' },
+    history: { replaceState: (...args) => calls.push(['history', ...args]) },
+    applyLanguage() {}, passwordReset: token => calls.push(['reset', token]),
+    api: () => { throw new Error('Must not fetch bootstrap'); },
+    personal: () => { throw new Error('Must not open personal page'); },
+  });
+  vm.runInContext(source('app.js'), context);
+  await Promise.resolve();
+  assert.deepEqual(calls, [['history', null, '', '/?token=personal'], ['reset', 'secret']]);
+});
+function resetHarness(respond) {
+  const nodes = new Map();
+  for (const selector of ['#main', '#reset-form', '#reset-password', '#reset-confirm', '#reset-error', '#reset-form button', '#reset-request'])
+    nodes.set(selector, { value: '', innerHTML: '', textContent: '' });
+  const calls = [], pending = [], toasts = [];
+  let openedAdmin = 0;
+  const context = vm.createContext({
+    t: text => text, $: selector => nodes.get(selector), shell() {},
+    api: async (url, options) => { calls.push({ url, options }); return respond(url, options); },
+    run: (_button, callback) => { const promise = callback(); pending.push(promise); return promise; },
+    toast: text => toasts.push(text), admin: async () => openedAdmin++,
+  });
+  vm.runInContext(source('password-reset.js'), context);
+  context.passwordReset('secret');
+  return { nodes, calls, pending, toasts, openedAdmin: () => openedAdmin };
+}
+test('reset page checks confirmation and saves the token/password before opening admin', async () => {
+  const h = resetHarness(() => ({ success: true }));
+  assert.equal(h.calls.length, 0); // Opening does not consume the link.
+  h.nodes.get('#reset-password').value = 'new-password';
+  h.nodes.get('#reset-confirm').value = 'different';
+  h.nodes.get('#reset-form').onsubmit({ preventDefault() {} });
+  assert.equal(h.nodes.get('#reset-error').textContent, 'Passwords do not match');
+  assert.equal(h.calls.length, 0);
+  h.nodes.get('#reset-confirm').value = 'new-password';
+  h.nodes.get('#reset-form').onsubmit({ preventDefault() {} });
+  await h.pending[0];
+  assert.equal(h.calls[0].url, '/admin/password-reset/complete');
+  assert.equal(h.calls[0].options.body.token, 'secret');
+  assert.equal(h.calls[0].options.body.password, 'new-password');
+  assert.equal(h.openedAdmin(), 1);
+  assert.ok(h.toasts.includes('Password changed'));
+});
+test('expired reset offers a new request without exposing destination or storing the token', async () => {
+  const h = resetHarness(url => {
+    if (url.endsWith('/complete')) throw Object.assign(new Error('Expired'), { status: 400 });
+    return { success: true };
+  });
+  h.nodes.get('#reset-password').value = h.nodes.get('#reset-confirm').value = 'new-password';
+  h.nodes.get('#reset-form').onsubmit({ preventDefault() {} });
+  await h.pending[0];
+  assert.match(h.nodes.get('#reset-error').textContent, /invalid or expired/);
+  assert.equal(h.openedAdmin(), 0);
+  h.nodes.get('#reset-request').onclick();
+  await h.pending[1];
+  assert.equal(h.calls[1].url, '/admin/password-reset/request');
+  assert.match(h.toasts[0], /If recovery is configured/);
+});
+test('recovery is grouped with notification options and uses the standard notification test', async () => {
+  const h = notificationsHarness((_url, options) => options?.method === 'PUT'
+    ? { ...notificationSettings, ...options.body } : notificationSettings);
+  await h.context.bindNotifications(h.section);
+  h.nodes.get('#recovery-enabled').checked = true;
+  h.nodes.get('#notification-chat-id').value = '-10098765';
+  assert.doesNotMatch(h.section.innerHTML, /id="recovery-chat-id"/);
+  h.nodes.get('form').onsubmit({ preventDefault() {} });
+  await h.pending[0];
+  assert.equal(h.calls[1].options.body.passwordRecoveryEnabled, true);
+  assert.equal(h.calls[1].options.body.chatId, '-10098765');
+  assert.equal(h.calls[1].options.body.recoveryChatId, undefined);
+  assert.equal(h.calls[1].options.body.enabled, false);
+  assert.match(h.section.innerHTML, /<fieldset><legend>Notification types<\/legend>(?:(?!<\/fieldset>)[\s\S])*id="recovery-enabled"/);
+  assert.doesNotMatch(h.section.innerHTML, /recovery-test|Send recovery test/);
+  h.nodes.get('#notification-test').onclick();
+  await h.pending[1];
+  assert.equal(h.calls[2].url, '/admin/notifications/test');
+  assert.equal(h.calls[2].options.body, undefined);
+});
+
+function settingsPageHarness(file, render) {
+  const nodes = new Map(), calls = [], pending = [], bound = [];
+  const node = selector => {
+    if (!nodes.has(selector)) nodes.set(selector, {
+      value: '', checked: false, required: false, isConnected: true, files: [], innerHTML: '',
+      closest: () => ({ insertAdjacentHTML: (_position, html) => { nodes.get('#main').innerHTML += html; } }),
+      querySelector: child => node(`${selector} ${child}`),
+    });
+    return nodes.get(selector);
+  };
+  const data = { publicUrl: 'https://stream.example', preferredLanguage: 'en', adminPasswordConfigured: true, adminProtection: true };
+  const context = vm.createContext({
+    $: node, t: text => text, esc: text => String(text), languageOptions: () => '',
+    button: (_label, id) => `<button id="${id}"></button>`,
+    location: { origin: 'https://stream.example', assign: url => bound.push(['navigate', url]) },
+    checksCard: () => '<section data-configuration-checks></section>',
+    bindChecks: () => ({ invalidate() {}, check: async () => {} }), bindSearchLanguageExample() {},
+    bindNotifications: async () => bound.push(['notifications']), bindProtection() {}, protectionFields: () => '',
+    api: async (url, options) => { calls.push({ url, options }); return data; },
+    run: (_button, action) => { const promise = action(); pending.push(promise); return promise; },
+    toast() {}, confirmAction: async () => true,
+    TELEGRAM_API_TUTORIAL_ID: 'telegram', TMDB_ACCESS_TOKEN_TUTORIAL_ID: 'tmdb', tutorialHref: id => `#tutorials/${id}`,
+  });
+  vm.runInContext(source(file), context);
+  context[render](data);
+  return { nodes, node, calls, pending, bound, context };
+}
+test('server settings save credentials independently and do not initialize admin notifications', async () => {
+  const h = settingsPageHarness('settings.js', 'renderSettings');
+  const html = h.node('#main').innerHTML;
+  assert.match(html, /Server settings/);
+  assert.doesNotMatch(html, /protection-form|restore-form|notifications-card|Admin password/);
+  assert.deepEqual(h.bound, []);
+  for (const [id, value] of [['public-url', 'https://new.example/'], ['api-id', '12345'], ['api-hash', 'api-secret'], ['tmdb-token', 'tmdb-secret'], ['default-language', 'he']])
+    h.node(`#${id}`).value = value;
+  h.node('#credentials').onsubmit({ preventDefault() {} });
+  await h.pending[0];
+  assert.equal(h.calls[0].url, '/setup/config');
+  const payload = h.calls[0].options.body;
+  assert.equal(payload.publicUrl, 'https://new.example');
+  assert.equal(payload.preferredLanguage, 'he');
+  assert.equal(payload.apiHash, 'api-secret');
+  assert.equal(payload.adminPassword, undefined);
+  assert.equal(payload.adminProtection, undefined);
+});
+test('admin settings save password protection and restore backups independently of server credentials', async () => {
+  const h = settingsPageHarness('admin-settings.js', 'renderAdminSettings');
+  assert.match(h.node('#main').innerHTML, /Admin settings/);
+  assert.doesNotMatch(h.node('#main').innerHTML, /id="credentials"|data-configuration-checks|id="clear-cache"/);
+  assert.deepEqual(h.bound, [['notifications']]);
+  h.node('#protection').checked = true;
+  h.node('#admin-password').value = 'new-password';
+  h.node('#protection-form').onsubmit({ preventDefault() {} });
+  await h.pending[0];
+  assert.equal(h.calls[0].url, '/setup/config');
+  assert.equal(h.calls[0].options.body.adminPassword, 'new-password');
+  assert.equal(h.calls[0].options.body.adminProtection, true);
+  assert.equal(h.calls[0].options.body.publicUrl, undefined);
+  assert.equal(h.node('#admin-password').value, '');
+  h.node('#backup-file').files = [{ text: async () => JSON.stringify({ users: {} }) }];
+  await h.node('#restore-form').onsubmit({ preventDefault() {} });
+  await h.pending[1];
+  assert.equal(h.calls[1].url, '/setup/config/import');
+  assert.deepEqual(h.bound[1], ['navigate', '/']);
+});
+test('sidebar highlights separate settings pages and preserves the existing server settings URL', () => {
+  const h = navigationHarness();
+  vm.runInContext('shell("admin", "Admin settings")', h.context);
+  assert.match(h.elements['#app'].innerHTML, /href="#admin-settings" aria-current="page"/);
+  assert.match(h.elements['#app'].innerHTML, /href="#settings" >.*Server settings/);
+  vm.runInContext('shell("admin", "Server settings")', h.context);
+  assert.match(h.elements['#app'].innerHTML, /href="#settings" aria-current="page"/);
+  assert.doesNotMatch(h.elements['#app'].innerHTML, /href="#admin-settings" aria-current/);
+});
+test('admin routes open the matching settings page without loading account lists', async () => {
+  for (const [hash, expected] of [['#settings', 'server'], ['#admin-settings', 'admin']]) {
+    const rendered = [], calls = [];
+    const main = { innerHTML: '', focus() {} };
+    const context = vm.createContext({
+      location: { hash }, window: {}, $: () => main, t: text => text,
+      api: async url => { calls.push(url); return url === '/admin/session' ? { authenticated: true } : {}; },
+      shell: (_mode, tab) => rendered.push(['tab', tab]),
+      renderSettings: () => rendered.push(['page', 'server']),
+      renderAdminSettings: () => rendered.push(['page', 'admin']),
+    });
+    vm.runInContext(source('admin.js'), context);
+    await context.admin();
+    assert.equal(rendered[1][1], expected);
+    assert.equal(calls.includes('/admin/accounts'), false);
   }
 });

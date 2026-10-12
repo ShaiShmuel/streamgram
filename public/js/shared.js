@@ -49,10 +49,17 @@ export function shell(mode = "", tab = "") {
   disposeNavigation();
   disposeNavigation = () => {};
   const brand = `<a class="brand" href="/"><img class="brandmark" src="/logo-icon-only.png" alt="" width="48" height="48"><span>StreamGram<small>${t("Private instance")}</small></span></a>`;
-  const nav = ["Overview", "Accounts", "Invitations", "Settings", "Tutorials"]
+  const nav = [
+    ["Overview", "overview", "Overview"],
+    ["Accounts", "accounts", "Accounts"],
+    ["Invitations", "invitations", "Invitations"],
+    ["Server settings", "settings", "Settings"],
+    ["Admin settings", "admin-settings", "shield"],
+    ["Tutorials", "tutorials", "Tutorials"],
+  ]
     .map(
-      (label) =>
-        `<a href="#${label.toLowerCase()}" ${tab === label ? 'aria-current="page"' : ""}>${icon(label)}${t(label)}</a>`,
+      ([label, route, glyph]) =>
+        `<a href="#${route}" ${tab === label ? 'aria-current="page"' : ""}>${icon(glyph)}${t(label)}</a>`,
     )
     .join("");
   const languageControl = `<label class="sr-only" for="ui-language">${t("Interface language")}</label><select id="ui-language">${Object.entries(supportedLanguages).map(([value, label]) => `<option value="${value}" ${language === value ? "selected" : ""}>${label}</option>`).join("")}</select>`;

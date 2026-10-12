@@ -42,6 +42,7 @@ export class InstanceConfigService implements OnModuleInit {
   private readonly configPath: string;
   private persisted: PersistedInstanceConfig = {};
   securityRevision = 0;
+  notificationsRevision = 0;
   readonly events = new EventEmitter();
 
   publishNotification(event: Omit<NotificationEvent, "at">): void {
@@ -59,6 +60,7 @@ export class InstanceConfigService implements OnModuleInit {
     const previous = this.getNotificationSettings();
     const next = validateNotificationSettings({ ...patch, botToken: patch.botToken || previous.botToken });
     this.commit({ ...this.persisted, notifications: next });
+    this.notificationsRevision++;
     this.events.emit("notificationsChanged");
   }
 
@@ -502,8 +504,10 @@ export class InstanceConfigService implements OnModuleInit {
     if (
       this.hasValue(patch.adminPassword) ||
       patch.adminProtection !== undefined
-    )
+    ) {
       this.securityRevision++;
+      this.events.emit("securityChanged");
+    }
   }
 
   /** Returns the raw persisted JSON string for export. */
@@ -526,6 +530,8 @@ export class InstanceConfigService implements OnModuleInit {
       invitations: [],
     });
     this.securityRevision++;
+    this.events.emit("securityChanged");
+    this.notificationsRevision++;
     this.events.emit("notificationsChanged");
     logger.info("Config imported successfully");
   }

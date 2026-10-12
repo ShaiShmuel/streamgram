@@ -14,10 +14,12 @@ export class NotificationsController {
   settings() { return this.notifications.settings(); }
   @Put() @ApiOperation({ summary: "Save Telegram notification settings" })
   @ApiOkResponse({ type: NotificationSettingsResponseDto })
-  save(@Body() body: NotificationSettingsDto) {
-    this.config.updateNotificationSettings(body);
+  async save(@Body() body: NotificationSettingsDto) {
+    await this.notifications.saveSettings(body);
     return this.notifications.settings();
   }
+  @Post("recovery-test") @ApiOperation({ summary: "Send a test to the saved notification chat" })
+  recoveryTest() { return this.notifications.recoveryTest(); }
   @Post("test") @ApiOperation({ summary: "Send a test using saved settings, even when alerts are disabled" })
   test() { return this.notifications.test(); }
 }

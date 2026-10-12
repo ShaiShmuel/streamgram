@@ -6,7 +6,7 @@ StreamGram stores instance configuration and a token-keyed map of Telegram accou
 
 Open `/` to initialize management. The four steps are admin protection, instance credentials, Telegram connection, and Stremio installation. Protection is enabled by default and requires an admin password of at least eight characters. After the protection step establishes the admin session, existing environment values prefill non-secret fields; saved Telegram API ID and API hash show one `*` per hidden character followed by their last three characters. The TMDB preview is capped at 70 `*` characters followed by its last three characters. These previews are available only through the guarded admin configuration endpoint. Telegram API ID uses a text field; leaving any credential field blank preserves its saved value. Saved configuration overrides environment defaults.
 
-Once management is initialized, `/` opens the admin dashboard or its login screen. Removing every account does not reopen first-run setup. Existing installations with an admin password inherit protection; existing installations without one remain unprotected. The Settings page can enable or disable protection. **Unprotected management is accessible to anyone who can reach the instance.**
+Once management is initialized, `/` opens the admin dashboard or its login screen. Removing every account does not reopen first-run setup. Existing installations with an admin password inherit protection; existing installations without one remain unprotected. The Admin settings page can enable or disable protection. Server settings contains instance credentials, language, connection checks, and cache controls. **Unprotected management is accessible to anyone who can reach the instance.**
 
 `/:userToken/configure` redirects to `/?action=settings&token=…`. Both links always open that account's personal page, even if the browser is logged in as an administrator. The personal page never requests account lists or instance configuration. Users can install immediately, rename their account, choose a personal search language, select optional folder/channel catalogs, reconnect the same Telegram identity, or delete their account. A missing personal language inherits the instance default. Personal changes cannot update TMDB credentials or instance defaults.
 
@@ -84,3 +84,38 @@ Keep `data/` and backups private: they contain Telegram session strings and inst
 Phone entry accepts international country codes without selecting a default country. Spaces, dashes and parentheses are normalized, and the `00` international prefix is accepted alongside `+`. Bare local numbers starting with a trunk zero are rejected rather than assigned a country.
 
 The Telegram password field appears only after Telegram requests two-step verification. Once the code is accepted, the server preserves that temporary session and retries the password directly without reusing the one-time code, following [Telegram’s two-step authorization flow](https://core.telegram.org/api/auth#2fa). A wrong password leaves the attempt and invitation available for retry until expiry.
+
+## Admin password recovery
+
+An authenticated admin can enable `passwordRecoveryEnabled` through
+`PUT /admin/notifications`. Recovery defaults to disabled and uses the same
+`botToken` and `chatId` as notifications, independently of routine alert settings.
+It requires a configured HTTPS public URL and an accessible notification chat.
+Private chats, groups, supergroups, and channels are supported. Legacy
+`recoveryChatId` fields remain accepted in backups but do not select a destination.
+`POST /admin/notifications/recovery-test` tests the saved recovery destination.
+The bot must have access to the configured chat. Reset links are visible to
+anyone with access to that chat.
+
+- `POST /admin/password-reset/request`: public, same-origin protected; always
+  returns `{ "success": true }` without disclosing configuration or delivery.
+- `POST /admin/password-reset/complete { "token": "…", "password": "…" }`:
+  public, same-origin protected; requires a valid single-use token and an
+  8–1024-character password. Saves a salted scrypt hash, expires previous admin
+  sessions/authentication owners, clears password lockouts, and issues the normal
+  eight-hour browser session. Personal tokens and Telegram sessions stay valid.
+
+Reset links use the configured public URL and place their 32-byte random secret
+in the URL fragment. The browser removes it from the address bar before rendering
+and keeps it only in page memory. Opening the link does not consume it; refreshing
+that page after removal requires reopening the Telegram link. The server stores
+only its hash and rejects it at exactly ten minutes after creation. A failed
+password write preserves the current password and permits retry before expiry.
+
+Only one link can be pending. Requests are limited to five per connection IP
+within 15 minutes and delivery attempts to one per instance per minute; suppressed
+requests have the same response. Delivery rechecks that the notification destination is accessible,
+disables link previews, and prioritizes recovery with bounded retries. Failed
+or expired delivery invalidates the link. Restart, backup restore, notification
+settings changes, and password/protection changes invalidate pending links.
+Backups include recovery configuration but never pending links.

@@ -31,7 +31,7 @@ export function bindChecks(root, { saved = false, warning = null } = {}) {
         const issues = Object.entries(labels).filter(([key]) => data[key].status !== "passed");
         warning.hidden = issues.length === 0;
         warning.innerHTML = issues.length
-          ? `<strong>${t("Connections need attention")}</strong><ul>${issues.map(([key, label]) => `<li><strong>${t(label)} (${t(statuses[data[key].status])})</strong>: ${esc(t(data[key].message))}</li>`).join("")}</ul><a href="#settings">${t("Open Settings")}</a>`
+          ? `<strong>${t("Connections need attention")}</strong><ul>${issues.map(([key, label]) => `<li><strong>${t(label)} (${t(statuses[data[key].status])})</strong>: ${esc(t(data[key].message))}</li>`).join("")}</ul><a href="#settings">${t("Open server settings")}</a>`
           : "";
       }
       results.innerHTML = `${saved ? `<p>${t("Settings saved")}</p>` : ""}` +
@@ -45,7 +45,7 @@ export function bindChecks(root, { saved = false, warning = null } = {}) {
       results.textContent = t(saved ? "Settings saved, but checks could not finish. Try again." : "Checks could not finish. Try again.");
       if (warning) {
         warning.hidden = false;
-        warning.innerHTML = `<strong>${t("Connections could not be verified")}</strong><p>${t("Checks could not finish. Try again.")}</p><a href="#settings">${t("Open Settings")}</a>`;
+        warning.innerHTML = `<strong>${t("Connections could not be verified")}</strong><p>${t("Checks could not finish. Try again.")}</p><a href="#settings">${t("Open server settings")}</a>`;
       }
     } finally {
       if (current(id)) retry.disabled = false;

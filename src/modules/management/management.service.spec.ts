@@ -50,6 +50,15 @@ describe("Admin password cooldown", () => {
     expect(service.verifyAdminPassword(login, "12345678")).toBe(true);
   });
 
+  it("bounds failure bookkeeping and rate-limits additional IPs through an overflow bucket", () => {
+    for (let i = 0; i < 1000; i++) service.verifyAdminPassword(request(`192.0.${Math.floor(i / 256)}.${i % 256}`), "wrong");
+    for (let i = 0; i < 4; i++) expect(service.verifyAdminPassword(request(`198.51.100.${i}`), "wrong")).toBe(false);
+    expect(() => service.verifyAdminPassword(request("198.51.100.5"), "wrong")).toThrow(HttpException);
+    const before = verify.mock.calls.length;
+    expect(() => service.verifyAdminPassword(request("198.51.100.6"), "wrong")).toThrow(HttpException);
+    expect(verify).toHaveBeenCalledTimes(before);
+    expect((service as unknown as { passwordFailures: Map<string, unknown> }).passwordFailures.size).toBe(1001);
+  });
   it("resets failures on success and ignores missing credentials", () => {
     const req = request();
     for (let i = 0; i < 4; i++) expect(service.verifyAdminPassword(req, "wrong")).toBe(false);
@@ -88,5 +97,22 @@ describe("Admin notification events", () => {
     request.headers.cookie = `streamgram_admin=${id}`;
     service.issueSession(request, response);
     expect(publishNotification).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("Admin session resource limits", () => {
+  it("caps active sessions and removes stale sessions when issuing a new cookie", () => {
+    const config = { securityRevision: 0, isProtected: () => true, publishNotification: jest.fn() };
+    const service = new ManagementService(config as unknown as InstanceConfigService);
+    const request = { ip: "192.0.2.1", headers: {}, get: () => undefined } as unknown as Request;
+    const response = { cookie: jest.fn() } as unknown as import("express").Response;
+    const oldest = service.issueSession(request, response);
+    for (let i = 0; i < 1000; i++) service.issueSession(request, response);
+    const sessions = (service as unknown as { sessions: Map<string, unknown> }).sessions;
+    expect(sessions.size).toBe(1000);
+    expect(sessions.has(oldest)).toBe(false);
+    config.securityRevision++;
+    service.issueSession(request, response);
+    expect(sessions.size).toBe(1);
   });
 });

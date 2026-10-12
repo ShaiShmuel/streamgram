@@ -7,11 +7,16 @@ export const NOTIFICATION_EVENTS = ["account_joined", "account_deleted", "admin_
 export type NotificationEventType = typeof NOTIFICATION_EVENTS[number];
 export interface NotificationSettings {
   enabled: boolean;
+  passwordRecoveryEnabled?: boolean;
+  recoveryChatId?: string;
   botToken?: string;
   chatId?: string;
   events: NotificationEventType[];
 }
 export class NotificationSettingsDto {
+  @ApiPropertyOptional({ default: false }) @IsOptional() @IsBoolean() passwordRecoveryEnabled?: boolean;
+  @ApiPropertyOptional({ deprecated: true, description: "Legacy field; recovery uses chatId" })
+  @IsOptional() @IsString() @MaxLength(128) recoveryChatId?: string;
   @ApiProperty() @IsBoolean() enabled: boolean;
   @ApiPropertyOptional({ description: "Blank preserves the saved token" })
   @IsOptional() @IsString() @MaxLength(256)
@@ -24,12 +29,18 @@ export class NotificationSettingsDto {
 export function validateNotificationSettings(value: unknown): NotificationSettings {
   const parsed = plainToInstance(NotificationSettingsDto, value);
   if (!parsed || validateSync(parsed, { whitelist: true, forbidNonWhitelisted: true }).length ||
-      (parsed.enabled && (!parsed.botToken || !parsed.chatId))) {
+      (parsed.enabled && (!parsed.botToken || !parsed.chatId)) ||
+      (parsed.passwordRecoveryEnabled && (!parsed.botToken || !parsed.chatId))) {
     throw new BadRequestException("Invalid notification settings; enabling requires a bot token and chat ID");
   }
-  return { enabled: parsed.enabled, botToken: parsed.botToken, chatId: parsed.chatId, events: [...parsed.events] };
+  return { enabled: parsed.enabled, botToken: parsed.botToken, chatId: parsed.chatId, events: [...parsed.events],
+    ...(parsed.passwordRecoveryEnabled !== undefined ? { passwordRecoveryEnabled: parsed.passwordRecoveryEnabled } : {}),
+    ...(parsed.recoveryChatId !== undefined ? { recoveryChatId: parsed.recoveryChatId } : {}),
+  };
 }
 export class NotificationSettingsResponseDto {
+  @ApiProperty() passwordRecoveryEnabled: boolean;
+
   @ApiProperty() enabled: boolean;
   @ApiProperty() botTokenConfigured: boolean;
   @ApiProperty() chatId: string;

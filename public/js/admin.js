@@ -1,3 +1,5 @@
+import { renderAdminSettings } from "./admin-settings.js";
+import { requestPasswordReset } from "./password-reset.js";
 import { checksCard, bindChecks } from "./checks.js";
 import { t, language } from "./i18n.js";
 import {
@@ -32,7 +34,8 @@ export async function admin() {
         overview: "Overview",
         accounts: "Accounts",
         invitations: "Invitations",
-        settings: "Settings",
+        settings: "Server settings",
+        "admin-settings": "Admin settings",
         tutorials: "Tutorials",
       }[route] || "Overview";
     shell("admin", tab);
@@ -42,8 +45,12 @@ export async function admin() {
       if (tab === "Tutorials") {
         return renderTutorials(routeParts.join("/"));
       }
-      if (tab === "Settings") {
+      if (tab === "Server settings") {
         renderSettings(config);
+        return;
+      }
+      if (tab === "Admin settings") {
+        renderAdminSettings(config);
         return;
       }
       if (tab === "Invitations") {
@@ -79,7 +86,7 @@ export async function admin() {
           (!config.setupComplete
             ? credentialsComplete && accounts.length === 0
               ? `<div class="notice"><strong>${t("Connect a Telegram account")}</strong><br>${t("Your API credentials are set. Add a Telegram account to start streaming in Stremio.")}</div>`
-              : `<div class="notice"><strong>${t("Configuration incomplete")}</strong><br>${t("Finish instance credentials in Settings to enable streaming.")}</div>`
+              : `<div class="notice"><strong>${t("Configuration incomplete")}</strong><br>${t("Finish instance credentials in Server settings to enable streaming.")}</div>`
             : "") +
           `<div class="stats"><section class="card stat"><div class="stat-label">${icon("Accounts")}${t("Telegram accounts")}</div><div class="value">${accounts.length}</div></section><section class="card stat"><div class="stat-label">${icon("Invitations")}${t("Active invitations")}</div><div class="value">${invites.filter((i) => i.status === "active").length}</div><p class="hint">${t("Single use · Valid for 7 days")}</p></section><section class="card stat"><div class="stat-label">${icon("shield")}${t("Admin protection")}</div><div class="value">${t(config.adminProtection ? "Enabled" : "Disabled")}</div><p class="hint">${t("Session expires after 8 hours.")}</p></section></div><section class="card"><div class="card-header"><h2>${t("Telegram accounts")}</h2><a class="btn ghost" href="#accounts">${t("View all")}${icon("arrow")}</a></div><div id="account-list"></div></section><section class="card"><div class="card-header"><div><h2>${t("Invitations")}</h2><p>${t("Invite someone to connect their own Telegram account.")}</p></div></div>${button("Create invitation", "create-invitation", "", "plus")}</section>`;
         $("#main").insertAdjacentHTML("beforeend", checksCard());
@@ -114,7 +121,8 @@ function login() {
   window.onhashchange = null;
   shell();
   $("#main").innerHTML =
-    `<section class="card login"><div class="eyebrow">${t("Management")}</div><h1>${t("Welcome back")}</h1><p>${t("Sign in to manage your StreamGram instance.")}</p><form id="login-form"><div class="field"><label for="login-password">${t("Admin password")}</label><input id="login-password" type="password" autocomplete="current-password" required maxlength="1024"></div><button class="primary">${t("Sign in")}</button></form></section>`;
+    `<section class="card login"><div class="eyebrow">${t("Management")}</div><h1>${t("Welcome back")}</h1><p>${t("Sign in to manage your StreamGram instance.")}</p><form id="login-form"><div class="field"><label for="login-password">${t("Admin password")}</label><input id="login-password" type="password" autocomplete="current-password" required maxlength="1024"></div><button class="primary">${t("Sign in")}</button></form><button type="button" id="forgot-password" class="ghost">${t("Forgot password")}</button></section>`;
+  $("#forgot-password").onclick = () => run($("#forgot-password"), requestPasswordReset);
   $("#login-form").onsubmit = (e) => {
     e.preventDefault();
     run($("#login-form button"), async () => {
