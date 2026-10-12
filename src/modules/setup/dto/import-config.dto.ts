@@ -1,3 +1,4 @@
+import { NotificationSettingsDto, validateNotificationSettings } from "../../notifications/dto/notification-settings.dto";
 import { plainToInstance, Type } from "class-transformer";
 import { BadRequestException } from "@nestjs/common";
 import {
@@ -80,6 +81,8 @@ export class ImportTmdbDto {
   @IsOptional() @IsString() bearerToken?: string;
 }
 export class ImportConfigDto {
+  @IsOptional() @ValidateNested() @Type(() => NotificationSettingsDto)
+  notifications?: NotificationSettingsDto;
   @IsOptional()
   @IsUrl({
     require_tld: false,
@@ -119,6 +122,7 @@ export function validateBackup(incoming: unknown): PersistedInstanceConfig {
       "Invalid backup configuration or account preferences",
     );
   return {
+    notifications: parsed.notifications === undefined ? undefined : validateNotificationSettings(parsed.notifications),
     publicUrl: parsed.publicUrl,
     telegram: parsed.telegram,
     tmdb: parsed.tmdb,

@@ -484,6 +484,9 @@ describe("HTTP management and personal access", () => {
   });
   it.each([
     ["/admin/accounts", "GET"],
+    ["/admin/notifications", "GET"],
+    ["/admin/notifications", "PUT"],
+    ["/admin/notifications/test", "POST"],
     ["/setup/admin-status", "GET"],
     ["/setup/checks", "POST"],
     ["/setup/config", "POST"],
@@ -508,6 +511,31 @@ describe("HTTP management and personal access", () => {
     expect([400, 401]).toContain(result.status);
     // Valid auth payloads reach the principal check; management guards run before DTO validation.
     if (!path.startsWith("/auth/qr")) expect(result.status).toBe(401);
+  });
+  it("protects notification settings, validates inputs, and never returns the bot token", async () => {
+    const user = await config.createOrUpdateUser("+12345678", "session");
+    expect((await request("/admin/notifications", "GET", undefined, { authorization: `Bearer ${user.token}` })).status).toBe(401);
+    const payload = { enabled: true, botToken: "123456:notification-secret", chatId: "-10012345", events: ["account_joined"] };
+    expect((await request("/admin/notifications", "PUT", payload, { cookie, origin: "https://evil.example" })).status).toBe(403);
+    expect((await request("/admin/notifications/test", "POST", undefined, { cookie, origin: "https://evil.example" })).status).toBe(403);
+    expect((await request("/admin/notifications/test", "POST", undefined, { cookie })).status).toBe(400);
+    expect((await request("/admin/notifications", "PUT", { ...payload, events: ["unknown"] }, { cookie })).status).toBe(400);
+    const saved = await request("/admin/notifications", "PUT", payload, { cookie });
+    expect(saved.status).toBe(200);
+    expect(saved.data).toMatchObject({ enabled: true, botTokenConfigured: true });
+    expect(JSON.stringify(saved.data)).not.toContain(payload.botToken);
+    expect((await request("/admin/notifications", "PUT", { ...payload, botToken: "", enabled: false }, { cookie })).status).toBe(200);
+    expect(config.getNotificationSettings().botToken).toBe(payload.botToken);
+    const read = await request("/admin/notifications", "GET", undefined, { cookie });
+    expect(JSON.stringify(read.data)).not.toContain(payload.botToken);
+  });
+  it("publishes deletion alerts for admin and personal deletion paths", async () => {
+    const a = await config.createOrUpdateUser("+11111", "session");
+    const b = await config.createOrUpdateUser("+22222", "session");
+    const listener = jest.fn(); config.events.on("notification", listener);
+    expect((await request(`/admin/accounts/${a.token}`, "DELETE", undefined, { cookie })).status).toBe(200);
+    expect((await request(`/auth/logout/${b.token}`, "DELETE", undefined, { authorization: `Bearer ${b.token}` })).status).toBe(200);
+    expect(listener.mock.calls.map(([event]) => event.type)).toEqual(["account_deleted", "account_deleted"]);
   });
   it("serves preview metadata before JavaScript, without exposing invitation tokens", async () => {
     const response = await fetch(`${base}/?invite=private-invitation`);

@@ -280,3 +280,35 @@ Admin password authentication blocks an IP for 15 minutes after five failures wi
 > StreamGram is a bridge, not a media library. It does not host, upload, or distribute any content. You choose the Telegram sources your account can access and are solely responsible for using this software in compliance with applicable law, copyright permissions, Telegram's Terms of Service, and the terms of your client or provider.
 
 ---
+
+### Telegram admin notifications
+
+In **Admin → Settings → Telegram notifications**, configure a Telegram bot token
+from [BotFather](https://t.me/BotFather) and one destination chat ID. Start a
+private conversation with the bot, or add it to a group/channel with permission
+to send messages. Send it a message and use Telegram's
+[`getUpdates`](https://core.telegram.org/bots/api#getupdates) method to find
+`message.chat.id` (a channel's public `@username` also works). Keep the bot token
+private; a dedicated notification bot avoids interference from other consumers
+of its updates.
+
+Save the settings and click **Send test notification**, then enable alerts and
+choose account joins/deletions, successful admin browser logins, failed admin
+passwords, or admin password lockouts. Tests use saved settings even while alerts
+are disabled. Reconnecting an existing Telegram account does not count as a join.
+Password alerts also cover the legacy admin password header; successful header
+checks and session refreshes do not generate login alerts.
+
+Alerts use English and include a UTC timestamp and instance URL. Account alerts
+show a name and the last four phone digits; login alerts show the connection IP.
+No private account links, passwords, or Telegram session strings are sent.
+Notifications do not require a connected Telegram user account.
+
+Delivery runs in memory: failed passwords are limited to one alert per IP per
+minute, messages to one per second, and the queue to 100 pending messages. Failed
+transient deliveries retry up to three total attempts. Alerts may be lost on
+restart or dropped when the queue fills. Changing notification settings clears
+pending alerts. The admin settings card shows the latest delivery result when
+loaded or after a test. Backups include the bot token and notification settings;
+store them securely. Restoring a backup restores notification settings without
+emitting account alerts.

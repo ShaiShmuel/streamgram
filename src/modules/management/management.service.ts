@@ -52,6 +52,8 @@ export class ManagementService {
     };
     if (failure.count >= MAX_PASSWORD_FAILURES) failure.expires = now + PASSWORD_WINDOW_MS;
     this.passwordFailures.set(ip, failure);
+    this.config.publishNotification({ type: "admin_password_failed", ip });
+    if (failure.count >= MAX_PASSWORD_FAILURES) this.config.publishNotification({ type: "admin_lockout", ip });
     if (failure.count >= MAX_PASSWORD_FAILURES) rejectBlocked(failure.expires);
     return false;
   }
@@ -78,6 +80,7 @@ export class ManagementService {
 
   issueSession(request: Request, response: Response): string {
     const old = this.cookie(request);
+    const wasAuthenticated = this.sessionWasValid(old);
     if (old) this.sessions.delete(old);
     const id = randomBytes(32).toString("base64url");
     this.sessions.set(id, {
@@ -91,7 +94,15 @@ export class ManagementService {
       path: "/",
       maxAge: SESSION_MS,
     });
+    if (this.config.isProtected() && !wasAuthenticated) {
+      this.config.publishNotification({ type: "admin_login", ip: request.ip || request.socket.remoteAddress || "unknown" });
+    }
     return id;
+  }
+
+  private sessionWasValid(id: string | undefined): boolean {
+    const session = id ? this.sessions.get(id) : undefined;
+    return Boolean(session && session.expires > Date.now() && session.revision === this.config.securityRevision);
   }
 
   logout(request: Request, response: Response) {

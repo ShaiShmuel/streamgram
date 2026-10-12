@@ -1,3 +1,4 @@
+import { NotificationsModule } from "./modules/notifications/notifications.module";
 import { ManagementModule } from "./modules/management/management.module";
 import { Module } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
@@ -34,6 +35,7 @@ import { DashboardController } from "./dashboard.controller";
     AuthModule,
     SetupModule,
     ManagementModule,
+    NotificationsModule,
   ],
 })
 export class AppModule {}

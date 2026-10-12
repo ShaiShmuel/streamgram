@@ -22,6 +22,7 @@ describe("Admin password cooldown", () => {
     verify = jest.fn((password: string) => password === "12345678");
     service = new ManagementService({
       verifyAdminPassword: verify,
+      publishNotification: jest.fn(),
       isManagementInitialized: () => true,
       isProtected: () => true,
     } as unknown as InstanceConfigService);
@@ -63,5 +64,29 @@ describe("Admin password cooldown", () => {
     for (let i = 0; i < 4; i++) service.verifyAdminPassword(req, "wrong");
     now += windowMs;
     expect(service.verifyAdminPassword(req, "wrong")).toBe(false);
+  });
+});
+
+describe("Admin notification events", () => {
+  it("publishes failures and one lockout at the threshold, but no events for blocked retries", () => {
+    const publishNotification = jest.fn();
+    const service = new ManagementService({ verifyAdminPassword: () => false, publishNotification } as unknown as InstanceConfigService);
+    const request = { ip: "192.0.2.1", res: { setHeader: jest.fn() } } as unknown as Request;
+    for (let i = 0; i < 5; i++) { try { service.verifyAdminPassword(request, "wrong"); } catch { /* fifth fails with 429 */ } }
+    expect(() => service.verifyAdminPassword(request, "wrong")).toThrow(HttpException);
+    expect(publishNotification.mock.calls.filter(([event]) => event.type === "admin_password_failed")).toHaveLength(5);
+    expect(publishNotification.mock.calls.filter(([event]) => event.type === "admin_lockout")).toHaveLength(1);
+    expect(JSON.stringify(publishNotification.mock.calls)).not.toContain("wrong");
+  });
+  it("publishes success only for newly established protected sessions", () => {
+    const publishNotification = jest.fn();
+    const service = new ManagementService({ isProtected: () => true, securityRevision: 0, publishNotification } as unknown as InstanceConfigService);
+    const request = { ip: "192.0.2.1", headers: {}, get: () => undefined } as unknown as Request;
+    const response = { cookie: jest.fn() } as unknown as import("express").Response;
+    const id = service.issueSession(request, response);
+    expect(publishNotification).toHaveBeenCalledWith({ type: "admin_login", ip: "192.0.2.1" });
+    request.headers.cookie = `streamgram_admin=${id}`;
+    service.issueSession(request, response);
+    expect(publishNotification).toHaveBeenCalledTimes(1);
   });
 });

@@ -1,3 +1,4 @@
+import { NotificationSettings } from "../notifications/dto/notification-settings.dto";
 export type SupportedLanguage = "en" | "he" | "ru" | "ar";
 
 /**
@@ -41,6 +42,7 @@ export interface InstanceProfile {
 }
 
 export interface PersistedInstanceConfig {
+  notifications?: NotificationSettings;
   adminPasswordHash?: string;
   managementInitialized?: boolean;
   adminProtection?: boolean;

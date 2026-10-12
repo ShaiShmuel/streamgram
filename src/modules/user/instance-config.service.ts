@@ -1,3 +1,6 @@
+import { EventEmitter } from "events";
+import { NOTIFICATION_EVENTS, NotificationSettingsDto, validateNotificationSettings } from "../notifications/dto/notification-settings.dto";
+import type { NotificationEvent } from "../notifications/notifications.service";
 import {
   BadRequestException,
   Injectable,
@@ -39,6 +42,26 @@ export class InstanceConfigService implements OnModuleInit {
   private readonly configPath: string;
   private persisted: PersistedInstanceConfig = {};
   securityRevision = 0;
+  readonly events = new EventEmitter();
+
+  publishNotification(event: Omit<NotificationEvent, "at">): void {
+    try { this.events.emit("notification", { ...event, at: Date.now() }); }
+    catch { logger.warn("Unable to queue Telegram notification"); }
+  }
+
+  getNotificationSettings() {
+    return this.persisted.notifications
+      ? { ...this.persisted.notifications, events: [...this.persisted.notifications.events] }
+      : { enabled: false, botToken: undefined, chatId: undefined, events: [...NOTIFICATION_EVENTS] };
+  }
+
+  updateNotificationSettings(patch: NotificationSettingsDto): void {
+    const previous = this.getNotificationSettings();
+    const next = validateNotificationSettings({ ...patch, botToken: patch.botToken || previous.botToken });
+    this.commit({ ...this.persisted, notifications: next });
+    this.events.emit("notificationsChanged");
+  }
+
 
   constructor(private readonly configService: ConfigService) {
     this.dataDir = path.resolve(
@@ -188,6 +211,7 @@ export class InstanceConfigService implements OnModuleInit {
     users[token] = entry;
     this.persisted.users = users;
     this.writePersistedConfig();
+    this.publishNotification({ type: "account_joined", name: entry.name, phoneLast4: phone.replace(/\D/g, "").slice(-4) });
     logger.info("Created new user");
     return entry;
   }
@@ -201,10 +225,12 @@ export class InstanceConfigService implements OnModuleInit {
   }
 
   deleteUser(token: string): void {
-    if (!this.getUserByToken(token)) return;
+    const user = this.getUserByToken(token);
+    if (!user) return;
     const users = { ...this.getUsers() };
     delete users[token];
     this.commit({ ...this.persisted, users });
+    this.publishNotification({ type: "account_deleted", name: user.name, phoneLast4: user.phone.replace(/\D/g, "").slice(-4) });
   }
 
   isManagementInitialized(): boolean {
@@ -393,6 +419,7 @@ export class InstanceConfigService implements OnModuleInit {
           : i,
       ),
     });
+    if (!existing) this.publishNotification({ type: "account_joined", name: entry.name, phoneLast4: phone.replace(/\D/g, "").slice(-4) });
     return entry;
   }
 
@@ -499,6 +526,7 @@ export class InstanceConfigService implements OnModuleInit {
       invitations: [],
     });
     this.securityRevision++;
+    this.events.emit("notificationsChanged");
     logger.info("Config imported successfully");
   }
 
@@ -584,6 +612,7 @@ export class InstanceConfigService implements OnModuleInit {
       }
       this.persisted = parsed as PersistedInstanceConfig;
       const next = { ...this.persisted };
+      if (next.notifications !== undefined) next.notifications = validateNotificationSettings(next.notifications);
       if (next.invitations !== undefined) {
         next.invitations = this.normalizeInvitations(next.invitations);
       }

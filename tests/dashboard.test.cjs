@@ -434,3 +434,81 @@ test('signed-in admins edit the account name in the original preferences form', 
   assert.equal(calls[2].url, '/settings');
   assert.equal(element('h1').textContent, 'New label');
 });
+
+function notificationsHarness(respond, connected = true) {
+  const nodes = new Map();
+  for (const selector of ['form', 'button.primary', '#notifications-enabled', '#notification-bot-token', '#notification-chat-id', '#notification-test', '#notification-delivery']) {
+    nodes.set(selector, { value: '', checked: false, placeholder: '', textContent: '' });
+  }
+  nodes.get('form').querySelector = selector => nodes.get(selector);
+  const selected = [{ value: 'account_joined' }, { value: 'admin_lockout' }];
+  const section = { isConnected: connected, innerHTML: '', querySelector: selector => nodes.get(selector), querySelectorAll: () => selected };
+  const calls = [], pending = [], toasts = [];
+  const context = vm.createContext({
+    Date, t: text => text, esc: text => String(text).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;'),
+    api: async (url, options) => { calls.push({ url, options }); return respond(url, options); },
+    run: (_button, callback) => { const promise = callback(); pending.push(promise); return promise; },
+    toast: message => toasts.push(message),
+  });
+  vm.runInContext(source('notifications.js'), context);
+  return { context, section, nodes, calls, pending, toasts };
+}
+const notificationSettings = { enabled: false, botTokenConfigured: true, chatId: '12345', events: ['account_joined'], lastDelivery: null };
+test('notifications form offers five translated choices and preserves a blank saved secret', async () => {
+  const h = notificationsHarness((_url, options) => options?.method === 'PUT'
+    ? { ...notificationSettings, ...options.body, botTokenConfigured: true } : notificationSettings);
+  await h.context.bindNotifications(h.section);
+  for (const event of ['account_joined', 'account_deleted', 'admin_login', 'admin_password_failed', 'admin_lockout']) {
+    assert.ok(h.section.innerHTML.includes(`value="${event}"`));
+  }
+  assert.ok(h.section.innerHTML.includes('type="password"'));
+  assert.ok(h.section.innerHTML.includes('placeholder="****"'));
+  h.nodes.get('#notifications-enabled').checked = true;
+  h.nodes.get('#notification-chat-id').value = '-10012345';
+  h.nodes.get('#notification-bot-token').value = '';
+  h.nodes.get('form').onsubmit({ preventDefault() {} });
+  await h.pending[0];
+  assert.equal(h.calls[1].options.method, 'PUT');
+  assert.equal(h.calls[1].options.body.botToken, '');
+  assert.equal(h.calls[1].options.body.enabled, true);
+  assert.deepEqual(Array.from(h.calls[1].options.body.events), ['account_joined', 'admin_lockout']);
+  assert.equal(h.nodes.get('#notification-bot-token').value, '');
+  assert.ok(h.toasts.includes('Settings saved'));
+});
+test('notification tests use saved settings and refresh delivery feedback', async () => {
+  let tested = false;
+  const h = notificationsHarness((url) => {
+    if (url.endsWith('/test')) { tested = true; return { success: true }; }
+    return { ...notificationSettings, lastDelivery: tested ? { at: '2026-10-12T10:00:00Z', success: true } : null };
+  });
+  await h.context.bindNotifications(h.section);
+  h.nodes.get('#notification-bot-token').value = 'unsaved-secret';
+  await h.nodes.get('#notification-test').onclick();
+  assert.equal(h.calls[1].url, '/admin/notifications/test');
+  assert.equal(h.calls[1].options.body, undefined);
+  assert.equal(h.calls[2].url, '/admin/notifications');
+  assert.ok(h.nodes.get('#notification-delivery').textContent.includes('Telegram message sent'));
+});
+test('notification delivery failures refresh feedback and load failures remain visible', async () => {
+  let tested = false;
+  const h = notificationsHarness(url => {
+    if (url.endsWith('/test')) { tested = true; throw new Error('Test failed'); }
+    return { ...notificationSettings, lastDelivery: tested ? { at: '2026-10-12T10:00:00Z', success: false } : null };
+  });
+  await h.context.bindNotifications(h.section);
+  await assert.rejects(h.nodes.get('#notification-test').onclick(), /Test failed/);
+  assert.ok(h.nodes.get('#notification-delivery').textContent.includes('Telegram delivery failed'));
+  const failed = notificationsHarness(() => { throw new Error('Unavailable'); });
+  await failed.context.bindNotifications(failed.section);
+  assert.ok(failed.section.innerHTML.includes('role="alert"'));
+  const navigated = notificationsHarness(() => notificationSettings, false);
+  await navigated.context.bindNotifications(navigated.section);
+  assert.equal(navigated.section.innerHTML, '');
+});
+test('notification settings copy has translations in every supported dashboard language', () => {
+  const { context } = locale();
+  for (const lang of ['he', 'ru', 'ar']) {
+    const missing = Array.from(vm.runInContext(`['Telegram notifications', 'Enable Telegram notifications', 'Bot token', 'Destination chat ID', 'Notification types', 'Account joined', 'Account deleted', 'Successful admin login', 'Failed admin password', 'Admin password lockout', 'Send test notification', 'Telegram message sent'].filter(key => !${lang}[key])`, context));
+    assert.deepEqual(missing, []);
+  }
+});
