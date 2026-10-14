@@ -3,6 +3,7 @@ import { ConfigService } from "@nestjs/config";
 import { Api, TelegramClient } from "teleproto";
 import { Logger, LogLevel } from "teleproto/extensions/Logger";
 import { StringSession } from "teleproto/sessions";
+import { TypeNotFoundError } from "teleproto/errors";
 import { logger } from "../../logger";
 import { InstanceConfigService } from "../user/instance-config.service";
 
@@ -30,6 +31,61 @@ export class TelegramClientManager implements OnApplicationShutdown {
    */
   private readonly initializing = new Map<string, Promise<TelegramClient>>();
   private readonly generations = new Map<string, number>();
+  private readonly removing = new Map<string, Promise<void>>();
+  private readonly recovering = new Map<string, Promise<TelegramClient>>();
+  private readonly lastRecovery = new Map<string, number>();
+  private readonly recoveryBlockedUntil = new Map<string, number>();
+  private readonly activeUses = new WeakMap<TelegramClient, number>();
+  private readonly decodingFailures = new WeakSet<TelegramClient>();
+
+  isDecodeError(error: unknown, client?: TelegramClient): boolean {
+    // getInputEntity wraps the decoding exception after calling onError.
+    return error instanceof TypeNotFoundError || !!(client && this.decodingFailures.has(client));
+  }
+
+  /** Keep the exact client alive until the response finishes, including backpressure. */
+  retainClient(client: TelegramClient): () => void {
+    this.activeUses.set(client, (this.activeUses.get(client) ?? 0) + 1);
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      this.activeUses.set(client, Math.max(0, (this.activeUses.get(client) ?? 1) - 1));
+      for (const session of this.clients.values()) {
+        if (session.client === client) session.lastUsed = new Date();
+      }
+    };
+  }
+
+  /** Replace only the failed account; concurrent failures share one recovery. */
+  recoverClient(userToken: string, failedClient: TelegramClient): Promise<TelegramClient> {
+    const pending = this.recovering.get(userToken);
+    if (pending) return pending;
+    const session = this.clients.get(userToken);
+    if (!session || session.client !== failedClient) {
+      if (session) return this.getOrInitializeClient(userToken, session.sessionString);
+      return Promise.reject(new Error("Failed Telegram client is no longer managed"));
+    }
+    this.decodingFailures.add(failedClient);
+    const now = Date.now();
+    const previous = this.lastRecovery.get(userToken);
+    const blockedUntil = previous === undefined ? 0 : previous + 60_000;
+    this.lastRecovery.set(userToken, now);
+    if (blockedUntil > now) this.recoveryBlockedUntil.set(userToken, blockedUntil);
+    const removal = this.removeClient(userToken);
+    const generation = this.generations.get(userToken);
+    const recovery = removal.then(() => {
+      if (this.shuttingDown || this.generations.get(userToken) !== generation) {
+        throw new Error("Telegram client recovery was cancelled");
+      }
+      logger.warn("Reinitializing Telegram connection after a decoding failure");
+      return this.getOrInitializeClient(userToken, session.sessionString);
+    }).finally(() => {
+      this.recovering.delete(userToken);
+    });
+    this.recovering.set(userToken, recovery);
+    return recovery;
+  }
 
   /** Idle-cleanup timer handle (kept so tests can clear it if needed). */
   private readonly cleanupTimer: ReturnType<typeof setInterval>;
@@ -46,7 +102,7 @@ export class TelegramClientManager implements OnApplicationShutdown {
 
     // Clean up clients idle for more than one hour, every 30 minutes.
     this.cleanupTimer = setInterval(
-      () => void this.cleanupIdleClients(),
+      () => void this.cleanupIdleClients().catch(() => logger.warn("Idle Telegram client cleanup failed")),
       30 * 60 * 1000,
     );
   }
@@ -108,6 +164,12 @@ export class TelegramClientManager implements OnApplicationShutdown {
     userToken: string,
     sessionString?: string,
   ): Promise<TelegramClient> {
+    const removal = this.removing.get(userToken);
+    if (removal) await removal;
+    if (this.shuttingDown) throw new Error("Telegram client manager is shutting down");
+    if ((this.recoveryBlockedUntil.get(userToken) ?? 0) > Date.now()) {
+      throw new Error("Telegram decoding recovery is cooling down; try again shortly");
+    }
     const session = sessionString || "";
     if (this.instanceConfig && !userToken.startsWith("auth:")) {
       const account = this.instanceConfig.getUserByToken(userToken);
@@ -142,8 +204,8 @@ export class TelegramClientManager implements OnApplicationShutdown {
             { userToken, error },
             "Existing Telegram client is unavailable – replacing",
           );
-          await this.removeClient(userToken);
         }
+        await this.removeClient(userToken);
       }
     }
 
@@ -158,11 +220,22 @@ export class TelegramClientManager implements OnApplicationShutdown {
     const init = this.initializeClient(session)
       .then(async (client) => {
         if ((this.generations.get(userToken) ?? 0) !== generation) {
-          await client.disconnect();
-          await client.destroy();
+          await this.disposeClient(client);
           throw new Error("Telegram client initialization was cancelled");
         }
         this.clients.set(userToken, { client, sessionString: session, lastUsed: new Date() });
+        client.onError = async (error) => {
+          if (this.clients.get(userToken)?.client !== client || this.shuttingDown) return;
+          if (this.isDecodeError(error)) {
+            // Do not await teardown from inside the library's update callback.
+            // The update loop itself may need to finish before destroy resolves.
+            void this.recoverClient(userToken, client).catch(() => {
+              logger.warn("Telegram decoding recovery failed; next request may retry");
+            });
+          } else {
+            logger.warn({ errorType: error.name }, "Telegram client encountered an error");
+          }
+        };
         logger.info(
           { userToken, totalClients: this.clients.size },
           "Initialized new Telegram client for user",
@@ -193,18 +266,18 @@ export class TelegramClientManager implements OnApplicationShutdown {
   /** Disconnects and removes the client for `userToken`. */
   async removeClient(userToken: string): Promise<void> {
     this.generations.set(userToken, (this.generations.get(userToken) ?? 0) + 1);
-    await this.initializing.get(userToken)?.catch(() => undefined);
-    const session = this.clients.get(userToken);
-    if (!session) return;
-
-    this.clients.delete(userToken);
-    try {
-      await session.client.disconnect();
-      await session.client.destroy();
-    } catch (error) {
-      logger.warn({ error, userToken }, "Failed to disconnect Telegram client");
-    }
-    logger.info({ userToken }, "Removed Telegram client");
+    const pending = this.removing.get(userToken);
+    if (pending) return pending;
+    const removal = (async () => {
+      await this.initializing.get(userToken)?.catch(() => undefined);
+      const session = this.clients.get(userToken);
+      if (!session) return;
+      this.clients.delete(userToken);
+      await this.disposeClient(session.client);
+      logger.info({ userToken }, "Removed Telegram client");
+    })().finally(() => this.removing.delete(userToken));
+    this.removing.set(userToken, removal);
+    return removal;
   }
 
   /** Total number of live clients. */
@@ -219,7 +292,7 @@ export class TelegramClientManager implements OnApplicationShutdown {
       "Disconnecting all Telegram clients",
     );
     await Promise.all(
-      Array.from(new Set([...this.clients.keys(), ...this.initializing.keys()])).map((token) => this.removeClient(token)),
+      Array.from(new Set([...this.clients.keys(), ...this.initializing.keys(), ...this.removing.keys()])).map((token) => this.removeClient(token)),
     );
   }
 
@@ -228,6 +301,7 @@ export class TelegramClientManager implements OnApplicationShutdown {
     clearInterval(this.cleanupTimer);
     await Promise.allSettled(Array.from(this.credentialChecks, (client) => client.destroy()));
     await this.disconnectAll();
+    await Promise.allSettled(this.recovering.values());
   }
 
   // ---------------------------------------------------------------------------
@@ -240,13 +314,16 @@ export class TelegramClientManager implements OnApplicationShutdown {
     const toRemove: string[] = [];
 
     for (const [token, session] of this.clients.entries()) {
-      if (session.lastUsed < oneHourAgo) {
+      if (session.lastUsed < oneHourAgo && !(this.activeUses.get(session.client) ?? 0)) {
         toRemove.push(token);
       }
     }
 
     for (const token of toRemove) {
-      await this.removeClient(token);
+      const session = this.clients.get(token);
+      if (session && session.lastUsed < oneHourAgo && !(this.activeUses.get(session.client) ?? 0)) {
+        await this.removeClient(token);
+      }
     }
 
     if (toRemove.length > 0) {
@@ -287,55 +364,23 @@ export class TelegramClientManager implements OnApplicationShutdown {
       },
     );
 
-    let lastErrorTime = 0;
-    let errorCount = 0;
-    const errorLogThrottleMs = 10_000;
-    const maxErrorsBeforeDisconnect = 5;
-
-    client.addEventHandler((event: any) => {
-      if (!(event instanceof Error) && !(event?.error instanceof Error)) return;
-
-      const now = Date.now();
-      if (now - lastErrorTime > errorLogThrottleMs) {
-        lastErrorTime = now;
-        errorCount = 0;
-      }
-      errorCount++;
-
-      if (errorCount === 1) {
-        logger.warn(
-          { error: event?.error || event, errorCount },
-          "Telegram client encountered an error",
-        );
-      }
-
-      if (errorCount >= maxErrorsBeforeDisconnect) {
-        logger.error(
-          { errorCount },
-          "Telegram client exceeded error threshold, disconnecting",
-        );
-        client
-          .disconnect()
-          .catch((err) => logger.debug({ err }, "Error during forced disconnect"));
-      }
-    });
-
     try {
       await client.connect();
       await client.getMe();
       return client;
     } catch (error) {
       logger.error({ error }, "Failed to initialize Telegram client");
-      try {
-        await client.disconnect();
-        await client.destroy();
-      } catch (disconnectError) {
-        logger.warn(
-          { error: disconnectError },
-          "Failed to clean up Telegram client after init error",
-        );
-      }
+      await this.disposeClient(client).catch(() => logger.warn("Failed to destroy Telegram client after initialization error"));
       throw error;
     }
+  }
+
+  private async disposeClient(client: TelegramClient): Promise<void> {
+    try {
+      await client.disconnect();
+    } catch {
+      logger.warn("Failed to disconnect Telegram client; attempting destruction");
+    }
+    await client.destroy();
   }
 }

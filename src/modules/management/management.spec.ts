@@ -419,6 +419,7 @@ describe("HTTP management and personal access", () => {
     createStreamSession: () => new AbortController(),
     releaseStreamSession: async () => undefined,
     getMessageWithCache: async () => ({}),
+    preparePlayback: async () => ({ client: {}, message: {}, release: () => undefined }),
     hasStreamableMedia: () => true,
     getFileSize: () => 10,
     getContentType: () => "video/mp4",

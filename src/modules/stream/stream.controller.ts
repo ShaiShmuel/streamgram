@@ -777,6 +777,7 @@ export class StreamController {
 
     const controller = this.telegramService.createStreamSession();
     let stream: Readable | undefined;
+    let releaseClient: (() => void) | undefined;
     // IncomingMessage.close also fires when the GET request finishes reading.
     // Only the response connection tells us whether playback disconnected.
     const onClose = () => {
@@ -790,15 +791,14 @@ export class StreamController {
     res.setTimeout(0);
 
     try {
-      const client = await this.telegramService.getClientForUser(
+      const { client, message, release } = await this.telegramService.preparePlayback(
         user.token,
         user.session_string,
-      );
-      const message = await this.telegramService.getMessageWithCache(
-        client,
         chatId,
         Number(messageId),
+        controller.signal,
       );
+      releaseClient = release;
       if (controller.signal.aborted || res.destroyed) return;
 
       if (!this.telegramService.hasStreamableMedia(message)) {
@@ -883,6 +883,7 @@ export class StreamController {
         }
       }
     } finally {
+      releaseClient?.();
       res.removeListener("close", onClose);
       await this.telegramService.releaseStreamSession(controller);
     }
