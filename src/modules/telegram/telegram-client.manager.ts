@@ -3,6 +3,7 @@ import { ConfigService } from "@nestjs/config";
 import { Api, TelegramClient } from "teleproto";
 import { Logger, LogLevel } from "teleproto/extensions/Logger";
 import { StringSession } from "teleproto/sessions";
+import { TypeNotFoundError } from "teleproto/errors";
 import { logger } from "../../logger";
 import { InstanceConfigService } from "../user/instance-config.service";
 
@@ -22,6 +23,7 @@ export class TelegramClientManager implements OnApplicationShutdown {
   /** Live clients, keyed by user token. */
   private readonly clients = new Map<string, ClientSession>();
   private readonly credentialChecks = new Set<TelegramClient>();
+  private readonly failedClients = new WeakSet<TelegramClient>();
   private shuttingDown = false;
 
   /**
@@ -136,14 +138,16 @@ export class TelegramClientManager implements OnApplicationShutdown {
       } else {
         existing.lastUsed = new Date();
         try {
-          if (existing.client.connected) return existing.client;
+          if (!this.failedClients.has(existing.client) && existing.client.connected) return existing.client;
         } catch (error) {
           logger.warn(
             { userToken, error },
             "Existing Telegram client is unavailable – replacing",
           );
-          await this.removeClient(userToken);
         }
+        // A disconnected client can still own background update work. Dispose of
+        // it before replacing it, including when the connected getter throws.
+        await this.removeClient(userToken);
       }
     }
 
@@ -292,8 +296,16 @@ export class TelegramClientManager implements OnApplicationShutdown {
     const errorLogThrottleMs = 10_000;
     const maxErrorsBeforeDisconnect = 5;
 
-    client.addEventHandler((event: any) => {
-      if (!(event instanceof Error) && !(event?.error instanceof Error)) return;
+    // Internal failures are delivered through onError, not update events.
+    client.onError = async (error: Error) => {
+      if (this.failedClients.has(client)) return;
+      // Do not log the Error object: schema errors contain raw Telegram bytes.
+      const errorDetails = {
+        errorName: error.constructor.name,
+        ...(error instanceof TypeNotFoundError
+          ? { constructorId: error.invalidConstructorId }
+          : {}),
+      };
 
       const now = Date.now();
       if (now - lastErrorTime > errorLogThrottleMs) {
@@ -304,25 +316,30 @@ export class TelegramClientManager implements OnApplicationShutdown {
 
       if (errorCount === 1) {
         logger.warn(
-          { error: event?.error || event, errorCount },
+          { ...errorDetails, errorCount },
           "Telegram client encountered an error",
         );
       }
 
-      if (errorCount >= maxErrorsBeforeDisconnect) {
+      if (error instanceof TypeNotFoundError || errorCount >= maxErrorsBeforeDisconnect) {
+        this.failedClients.add(client);
         logger.error(
-          { errorCount },
-          "Telegram client exceeded error threshold, disconnecting",
+          { ...errorDetails, errorCount },
+          "Telegram client failed; destroying it before the next request reconnects",
         );
-        client
-          .disconnect()
-          .catch((err) => logger.debug({ err }, "Error during forced disconnect"));
+        // Do not await shutdown from inside the library's update/read loop.
+        // destroy also stops update synchronization and marks the client unusable.
+        void client.destroy()
+          .catch((err) => logger.debug({ err }, "Error during forced destroy"));
       }
-    });
+    };
 
     try {
       await client.connect();
       await client.getMe();
+      if (this.failedClients.has(client)) {
+        throw new Error("Telegram client failed during initialization");
+      }
       return client;
     } catch (error) {
       logger.error({ error }, "Failed to initialize Telegram client");

@@ -1,7 +1,11 @@
 import { ConfigService } from "@nestjs/config";
-import { TelegramClient } from "teleproto";
+import { Api, TelegramClient } from "teleproto";
+import { TypeNotFoundError } from "teleproto/errors";
+import bigInt from "big-integer";
 import { TelegramClientManager } from "./telegram-client.manager";
 import { InstanceConfigService } from "../user/instance-config.service";
+
+type ClientInitializer = { initializeClient(session: string): Promise<TelegramClient> };
 
 describe("Managed client lifecycle", () => {
   let manager: TelegramClientManager;
@@ -83,6 +87,42 @@ describe("Managed client lifecycle", () => {
     ]);
     expect(results).toEqual([connected, connected]);
     expect(init).toHaveBeenCalledTimes(1);
+  });
+  it("destroys a disconnected client before concurrent requests replace it", async () => {
+    const old = client();
+    const replacement = client();
+    const init = jest.spyOn(manager as unknown as ClientInitializer, "initializeClient")
+      .mockResolvedValueOnce(old)
+      .mockResolvedValueOnce(replacement);
+    await manager.getOrInitializeClient("a", "session");
+    Object.defineProperty(old, "connected", { value: false });
+    const results = await Promise.all([
+      manager.getOrInitializeClient("a", "session"),
+      manager.getOrInitializeClient("a", "session"),
+    ]);
+    expect(results).toEqual([replacement, replacement]);
+    expect(old.destroy).toHaveBeenCalledTimes(1);
+    expect(init).toHaveBeenCalledTimes(2);
+    expect((old.destroy as jest.Mock).mock.invocationCallOrder[0])
+      .toBeLessThan(init.mock.invocationCallOrder[1]);
+  });
+  it("stops schema-error storms through Teleproto's actual error callback", async () => {
+    jest.spyOn(TelegramClient.prototype, "connect").mockResolvedValue(true);
+    jest.spyOn(TelegramClient.prototype, "getMe").mockResolvedValue(new Api.User({ id: bigInt(1) }));
+    const destroy = jest.spyOn(TelegramClient.prototype, "destroy").mockResolvedValue(undefined);
+    jest.spyOn(TelegramClient.prototype, "disconnect").mockResolvedValue(undefined);
+    const managed = await (manager as unknown as ClientInitializer).initializeClient("") as TelegramClient;
+    // A failing client may still report connected while shutdown is pending.
+    Object.defineProperty(managed, "connected", { value: true });
+    const init = jest.spyOn(manager as unknown as ClientInitializer, "initializeClient").mockResolvedValueOnce(managed);
+    await manager.getOrInitializeClient("a", "session");
+    const error = new TypeNotFoundError(3758725303, Buffer.alloc(0));
+    for (let i = 0; i < 10; i++) await managed._errorHandler?.(error);
+    expect(destroy).toHaveBeenCalledTimes(1);
+    const replacement = client();
+    init.mockResolvedValueOnce(replacement);
+    expect(await manager.getOrInitializeClient("a", "session")).toBe(replacement);
+    expect(manager.getActiveClientCount()).toBe(1);
   });
   it("rejects stale request profiles after deletion or reconnect", async () => {
     await manager.onApplicationShutdown();
