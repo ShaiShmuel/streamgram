@@ -107,38 +107,6 @@ export class TelegramNestService {
     return this.clientManager.getOrInitializeClient(userToken, sessionString);
   }
 
-  /** Retry decoding failures only while playback has not sent any response bytes. */
-  async preparePlayback(
-    userToken: string,
-    sessionString: string,
-    chatId: string,
-    messageId: number,
-    signal: AbortSignal,
-  ): Promise<{ client: TelegramClient; message: Message; release: () => void }> {
-    let client = await this.getClientForUser(userToken, sessionString);
-    for (let attempt = 0; ; attempt++) {
-      signal.throwIfAborted();
-      const release = this.clientManager.retainClient(client);
-      try {
-        const message = await this.getMessageWithCache(client, chatId, messageId);
-        signal.throwIfAborted();
-        return { client, message, release };
-      } catch (error) {
-        release();
-        signal.throwIfAborted();
-        const cause = (error as { cause?: unknown })?.cause ?? error;
-        if (!this.clientManager.isDecodeError(cause, client)) throw error;
-        const recovery = this.clientManager.recoverClient(userToken, client);
-        if (attempt !== 0) {
-          // Retire the failed replacement too; the manager enforces its cooldown.
-          await recovery.catch(() => undefined);
-          throw error;
-        }
-        client = await recovery;
-      }
-    }
-  }
-
   /**
    * Check if the Telegram client is connected and session is valid
    * @param _instanceKey - Compatibility parameter for the local instance
@@ -2051,9 +2019,9 @@ export class TelegramNestService {
         { chatId, messageId, error },
         "Failed to fetch message from Telegram",
       );
-      throw Object.assign(new Error(
+      throw new Error(
         `Failed to fetch message ${messageId} from chat ${chatId} error: ${error}`,
-      ), { cause: error });
+      );
     }
 
     if (!message) {

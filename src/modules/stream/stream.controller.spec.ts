@@ -42,13 +42,11 @@ describe("Telegram video HTTP streaming", () => {
   const fileSize = 12 * 1024 * 1024 + 123;
   let server: Server;
   let url: string;
-  let releaseClient: jest.Mock;
   let telegram: {
     createStreamSession: jest.Mock;
     releaseStreamSession: jest.Mock;
     getClientForUser: jest.Mock;
     getMessageWithCache: jest.Mock;
-    preparePlayback: jest.Mock;
     hasStreamableMedia: jest.Mock;
     getFileSize: jest.Mock;
     getContentType: jest.Mock;
@@ -56,13 +54,11 @@ describe("Telegram video HTTP streaming", () => {
   };
 
   beforeEach(async () => {
-    releaseClient = jest.fn();
     telegram = {
       createStreamSession: jest.fn(() => new AbortController()),
       releaseStreamSession: jest.fn(async (controller: AbortController) => controller.abort()),
       getClientForUser: jest.fn(async () => ({})),
       getMessageWithCache: jest.fn(async () => ({})),
-      preparePlayback: jest.fn(async () => ({ client: {}, message: {}, release: releaseClient })),
       hasStreamableMedia: jest.fn(() => true),
       getFileSize: jest.fn(() => fileSize),
       getContentType: jest.fn(() => "video/mp4"),
@@ -119,7 +115,6 @@ describe("Telegram video HTTP streaming", () => {
     expect(result.headers["accept-ranges"]).toBe("bytes");
     expect(result.headers["content-range"]).toBe(range ? `bytes 0-${fileSize - 1}/${fileSize}` : undefined);
     expect(telegram.releaseStreamSession).toHaveBeenCalledTimes(1);
-    expect(releaseClient).toHaveBeenCalledTimes(1);
   });
 
   it.each([
@@ -204,11 +199,10 @@ describe("Telegram video HTTP streaming", () => {
     await expect(fetchVideo()).rejects.toThrow();
     await released;
     expect(telegram.releaseStreamSession).toHaveBeenCalledTimes(1);
-    expect(releaseClient).toHaveBeenCalledTimes(1);
   });
 
   it("releases the session if metadata lookup fails", async () => {
-    telegram.preparePlayback.mockRejectedValue(new Error("lookup failure"));
+    telegram.getMessageWithCache.mockRejectedValue(new Error("lookup failure"));
     const result = await fetchVideo();
     expect(result.status).toBe(500);
     expect(telegram.releaseStreamSession).toHaveBeenCalledTimes(1);
