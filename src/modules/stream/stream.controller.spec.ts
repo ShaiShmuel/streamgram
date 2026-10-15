@@ -2,7 +2,62 @@ import express from "express";
 import { AddressInfo } from "net";
 import { get, request, Server } from "http";
 import { StreamController } from "./stream.controller";
-import { Request } from "express";
+import { Request, Response } from "express";
+import { ServiceUnavailableException } from "@nestjs/common";
+
+describe("Tag instruction screen", () => {
+  function setup(alreadySent = false) {
+    const telegram = {
+      getClientForUser: jest.fn(async () => ({})),
+      sendMessage: jest.fn(async () => undefined),
+      clearCacheByCatalogId: jest.fn(async () => undefined),
+    };
+    const cache = {
+      get: jest.fn(async () => alreadySent ? "sent" : undefined),
+      set: jest.fn(async () => undefined),
+    };
+    const controller: StreamController = Reflect.construct(StreamController, [
+      {}, telegram, { get: () => undefined }, {}, cache,
+      { getConfig: () => ({ publicUrl: "https://test.example.com/streamgram/" }) },
+    ]);
+    const response = { redirect: jest.fn(), setHeader: jest.fn() };
+    return { controller, telegram, cache, response };
+  }
+
+  it.each(["en", "he", "ru", "ar"])("shows the %s video after sending the account's tag", async (language) => {
+    const { controller, telegram, cache, response } = setup();
+    const req = { user: { token: "account-1", session_string: "session", language } } as Request;
+    await controller.sendTag("tt1234567:1:2", req, response as unknown as Response);
+    expect(telegram.getClientForUser).toHaveBeenCalledWith("account-1", "session");
+    expect(telegram.sendMessage).toHaveBeenCalledWith({}, "/tag tt1234567:1:2");
+    expect(cache.set).toHaveBeenCalledWith("tag-sent:account-1:tt1234567:1:2", "sent", 300);
+    expect(telegram.clearCacheByCatalogId).toHaveBeenCalledWith("tt1234567:1:2", "account-1");
+    expect(response.setHeader).toHaveBeenCalledWith("Cache-Control", "no-store");
+    expect(response.redirect).toHaveBeenCalledWith(302, `https://test.example.com/streamgram/assets/tag-assistant/instructions-${language}.mp4`);
+  });
+
+  it("reopens the video without resending a recent tag", async () => {
+    const { controller, telegram, response } = setup(true);
+    await controller.sendTag("tt1234567", { user: { token: "account-1", language: "he" } } as Request, response as unknown as Response);
+    expect(telegram.sendMessage).not.toHaveBeenCalled();
+    expect(response.redirect).toHaveBeenCalledWith(302, "https://test.example.com/streamgram/assets/tag-assistant/instructions-he.mp4");
+  });
+
+  it.each([undefined, "unknown", "../../private"])("falls back to English for language %s", async (language) => {
+    const { controller, response } = setup(true);
+    await controller.sendTag("tt1234567", { user: { token: "account-1", language } } as Request, response as unknown as Response);
+    expect(response.redirect).toHaveBeenCalledWith(302, "https://test.example.com/streamgram/assets/tag-assistant/instructions-en.mp4");
+  });
+
+  it("does not show a success screen when Telegram rejects the message", async () => {
+    const { controller, telegram, cache, response } = setup();
+    telegram.sendMessage.mockRejectedValueOnce(new Error("Telegram unavailable"));
+    await expect(controller.sendTag("tt1234567", { user: { token: "account-1" } } as Request, response as unknown as Response))
+      .rejects.toBeInstanceOf(ServiceUnavailableException);
+    expect(response.redirect).not.toHaveBeenCalled();
+    expect(cache.set).not.toHaveBeenCalled();
+  });
+});
 
 describe("Stremio result language", () => {
   it.each([

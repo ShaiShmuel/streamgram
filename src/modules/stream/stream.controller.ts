@@ -938,7 +938,7 @@ export class StreamController {
   }
 
   /**
-   * Send tag command to Telegram (Saved Messages by default) and redirect to tutorial video
+   * Send a tag to Saved Messages and show the long-running instruction screen.
    */
   @Get("tag/:catalogId")
   @ApiOperation({
@@ -955,6 +955,8 @@ export class StreamController {
     @Res() res: Response,
   ): Promise<void> {
     const user = req.user;
+    // This action sends a private message; never cache its redirect in clients/proxies.
+    res.setHeader("Cache-Control", "no-store");
     const decoded = decodeURIComponent(catalogId);
     const cacheKey = `tag-sent:${user.token}:${decoded}`;
 
@@ -992,11 +994,11 @@ export class StreamController {
         );
       }
 
-      // Redirect to Dropbox tutorial video
-      const videoUrl =
-        "https://www.dropbox.com/scl/fi/coj5cs9p0b3bdpir4pwsi/IMG_4142.MP4?rlkey=nt68mpeon1vbv9x10od16uihx&st=me4jrta6&raw=1";
-
-      res.redirect(302, videoUrl);
+      // Use the authenticated account's addon language; keep asset paths allowlisted.
+      const language = ["en", "he", "ru", "ar"].includes(user.language)
+        ? user.language
+        : "en";
+      res.redirect(302, `${this.getBaseUrl()}/assets/tag-assistant/instructions-${language}.mp4`);
     } catch (error) {
       logger.error(
         {
@@ -1007,10 +1009,10 @@ export class StreamController {
         "Failed to send tag to Telegram",
       );
 
-      // Even on error, redirect to video so user can still see the tutorial
-      const videoUrl =
-        "https://www.dropbox.com/scl/fi/coj5cs9p0b3bdpir4pwsi/IMG_4142.MP4?rlkey=nt68mpeon1vbv9x10od16uihx&st=me4jrta6&raw=1";
-      res.redirect(302, videoUrl);
+      // The instruction screen says the tag was sent, so only show it on success.
+      throw new ServiceUnavailableException(
+        "Could not send the tag to Telegram. Please try again.",
+      );
     }
   }
 
