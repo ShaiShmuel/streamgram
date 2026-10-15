@@ -3,13 +3,14 @@ import { ConfigService } from "@nestjs/config";
 import { Buffer } from "buffer";
 import { TelegramClient } from "teleproto";
 import { Api } from "teleproto";
+import { TypeNotFoundError } from "teleproto/errors";
 import { StringSession } from "teleproto/sessions";
 import { Logger, LogLevel } from "teleproto/extensions/Logger";
 import { CustomMessage as Message } from "teleproto/tl/custom/message";
 import { EntityLike } from "teleproto/define";
 import bigInt from "big-integer";
 import { computeCheck } from "teleproto/Password";
-import { CacheService } from "../cache/cache.service";
+import { CacheService, PlaybackContext, PlaybackPeer } from "../cache/cache.service";
 import { MediaDetails } from "../tmdb/types";
 import { MediaSearchResult, EpisodeInfo } from "./types";
 import { logger } from "../../logger";
@@ -1916,7 +1917,12 @@ export class TelegramNestService {
 
     const limited = finalResults;
 
-    await this.cache.setSearchResults(user.token, cacheKey, limited);
+    // Searches can swallow individual failures; never cache their incomplete
+    // output if the shared client was invalidated during the search.
+    this.clientManager.assertClientUsable(client);
+    const playback = await this.buildPlaybackContext(client, user.session_string, limited);
+    this.clientManager.assertClientUsable(client);
+    await this.cache.setSearchResults(user.token, cacheKey, limited, playback);
     logger.info(
       {
         cacheKey,
@@ -1990,10 +1996,89 @@ export class TelegramNestService {
     }
   }
 
+  async getPlaybackContextForUser(
+    userToken: string, session: string, results: MediaSearchResult[],
+  ): Promise<PlaybackContext> {
+    const client = await this.getClientForUser(userToken, session);
+    const context = await this.buildPlaybackContext(client, session, results);
+    this.clientManager.assertClientUsable(client);
+    return context;
+  }
+
+  private async buildPlaybackContext(
+    client: TelegramClient, session: string, results: MediaSearchResult[],
+  ): Promise<PlaybackContext> {
+    const peers: PlaybackPeer[] = [];
+    await Promise.all([...new Set(results.map(result => result.chatId))].map(async chatId => {
+      try {
+        const entity = await client.getInputEntity(chatId);
+        if (entity instanceof Api.InputPeerChannel && !entity.accessHash.isZero()) {
+          peers.push({ chatId, kind: "channel", id: entity.channelId.toString(), accessHash: entity.accessHash.toString() });
+        } else if (entity instanceof Api.InputPeerChat) {
+          peers.push({ chatId, kind: "chat", id: entity.chatId.toString() });
+        } else if (entity instanceof Api.InputPeerUser && !entity.accessHash.isZero()) {
+          peers.push({ chatId, kind: "user", id: entity.userId.toString(), accessHash: entity.accessHash.toString() });
+        }
+      } catch (error) {
+        if (error instanceof TypeNotFoundError) throw error;
+        // Missing references can still be rediscovered after targeted invalidation.
+      }
+    }));
+    return { session, peers };
+  }
+
+  private inputPeer(reference: PlaybackPeer): Api.TypeInputPeer {
+    if (reference.kind === "chat") return new Api.InputPeerChat({ chatId: bigInt(reference.id) });
+    if (reference.kind === "channel") return new Api.InputPeerChannel({
+      channelId: bigInt(reference.id), accessHash: bigInt(reference.accessHash),
+    });
+    return new Api.InputPeerUser({ userId: bigInt(reference.id), accessHash: bigInt(reference.accessHash) });
+  }
+
+  /** Retry read-only playback preparation once, preserving the resolved peer. */
+  async preparePlayback(
+    userToken: string,
+    sessionString: string,
+    chatId: string,
+    messageId: number,
+    signal: AbortSignal,
+  ): Promise<{ client: TelegramClient; message: Message }> {
+    let entity: EntityLike | undefined;
+    const generation = this.cache.getPlaybackGeneration();
+    const stored = await this.cache.getPlaybackPeer(userToken, sessionString, chatId);
+    if (stored) entity = this.inputPeer(stored);
+    for (let attempt = 0; attempt < 2; attempt++) {
+      if (signal.aborted) throw new Error("Playback preparation cancelled");
+      const client = await this.getClientForUser(userToken, sessionString);
+      try {
+        if (!entity) {
+          try {
+            entity = await client.getInputEntity(this.normalizeChatId(chatId) as EntityLike);
+          } catch (error) {
+            if (error instanceof Error && error.message.includes("Could not find the input entity")) {
+              await this.cache.invalidatePlaybackResults(userToken, chatId, messageId, generation);
+              throw new Error("Playback peer unavailable; refresh the source list to search again");
+            }
+            throw error;
+          }
+        }
+        if (signal.aborted) throw new Error("Playback preparation cancelled");
+        const message = await this.getMessageWithCache(client, chatId, messageId, entity);
+        return { client, message };
+      } catch (error) {
+        if (!(error instanceof TypeNotFoundError) || attempt === 1 || signal.aborted) throw error;
+        logger.warn({ chatId, messageId, constructorId: error.invalidConstructorId },
+          "Retrying playback preparation after Telegram decoding failure");
+      }
+    }
+    throw new Error("Playback preparation failed");
+  }
+
   async getMessageWithCache(
     client: TelegramClient,
     chatId: string,
     messageId: number,
+    resolvedEntity?: EntityLike,
   ): Promise<Message> {
     const cached = await this.cache.getMessageDetails<{
       fileSize: number;
@@ -2009,12 +2094,14 @@ export class TelegramNestService {
     let message: Message | undefined;
     try {
       const entityId = this.normalizeChatId(chatId) as EntityLike;
-      const entity = await client.getInputEntity(entityId);
+      const entity = resolvedEntity ?? await client.getInputEntity(entityId);
       const result = await client.getMessages(entity as EntityLike, {
         ids: messageId,
       });
       message = Array.isArray(result) ? result[0] : result;
     } catch (error) {
+      // Preserve the type for bounded recovery, without logging raw response bytes.
+      if (error instanceof TypeNotFoundError) throw error;
       logger.error(
         { chatId, messageId, error },
         "Failed to fetch message from Telegram",

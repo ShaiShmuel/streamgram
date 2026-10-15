@@ -45,8 +45,7 @@ describe("Telegram video HTTP streaming", () => {
   let telegram: {
     createStreamSession: jest.Mock;
     releaseStreamSession: jest.Mock;
-    getClientForUser: jest.Mock;
-    getMessageWithCache: jest.Mock;
+    preparePlayback: jest.Mock;
     hasStreamableMedia: jest.Mock;
     getFileSize: jest.Mock;
     getContentType: jest.Mock;
@@ -57,8 +56,7 @@ describe("Telegram video HTTP streaming", () => {
     telegram = {
       createStreamSession: jest.fn(() => new AbortController()),
       releaseStreamSession: jest.fn(async (controller: AbortController) => controller.abort()),
-      getClientForUser: jest.fn(async () => ({})),
-      getMessageWithCache: jest.fn(async () => ({})),
+      preparePlayback: jest.fn(async () => ({ client: {}, message: {} })),
       hasStreamableMedia: jest.fn(() => true),
       getFileSize: jest.fn(() => fileSize),
       getContentType: jest.fn(() => "video/mp4"),
@@ -202,7 +200,7 @@ describe("Telegram video HTTP streaming", () => {
   });
 
   it("releases the session if metadata lookup fails", async () => {
-    telegram.getMessageWithCache.mockRejectedValue(new Error("lookup failure"));
+    telegram.preparePlayback.mockRejectedValue(new Error("lookup failure"));
     const result = await fetchVideo();
     expect(result.status).toBe(500);
     expect(telegram.releaseStreamSession).toHaveBeenCalledTimes(1);

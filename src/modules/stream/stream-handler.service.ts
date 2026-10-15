@@ -354,7 +354,8 @@ export class StreamHandlerService {
       );
 
       // Cache the results
-      await this.cache.setChannelVideos(user.token, cacheKey, 0, messages);
+      await this.cache.setChannelVideos(user.token, cacheKey, 0, messages,
+        await this.telegramService.getPlaybackContextForUser(user.token, user.session_string, messages));
 
       logger.info(
         {
@@ -423,7 +424,8 @@ export class StreamHandlerService {
       );
 
       // Cache the results
-      await this.cache.setChannelVideos(user.token, cacheKey, 0, messages);
+      await this.cache.setChannelVideos(user.token, cacheKey, 0, messages,
+        await this.telegramService.getPlaybackContextForUser(user.token, user.session_string, messages));
 
       logger.info(
         {

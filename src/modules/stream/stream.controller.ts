@@ -8,7 +8,9 @@ import {
   HttpStatus,
   Header,
   UseGuards,
+  ServiceUnavailableException,
 } from "@nestjs/common";
+import { TypeNotFoundError } from "teleproto/errors";
 import {
   ApiTags,
   ApiOperation,
@@ -598,6 +600,7 @@ export class StreamController {
   }
 
   @Get("stream/:type/:idWithEpisode.json")
+  @Header("Cache-Control", "private, no-store")
   @ApiOperation({ summary: "Get stream links for Stremio" })
   @ApiParam({ name: "type", required: true, enum: ["movie", "series"] })
   @ApiParam({ name: "idWithEpisode", required: true })
@@ -790,14 +793,12 @@ export class StreamController {
     res.setTimeout(0);
 
     try {
-      const client = await this.telegramService.getClientForUser(
+      const { client, message } = await this.telegramService.preparePlayback(
         user.token,
         user.session_string,
-      );
-      const message = await this.telegramService.getMessageWithCache(
-        client,
         chatId,
         Number(messageId),
+        controller.signal,
       );
       if (controller.signal.aborted || res.destroyed) return;
 
@@ -870,13 +871,19 @@ export class StreamController {
       await pipeline(stream, res);
     } catch (error) {
       if (!controller.signal.aborted) {
-        logger.error({ err: error, chatId, messageId }, "Failed to stream video");
+        logger.error({
+          ...(error instanceof TypeNotFoundError
+            ? { errorName: "TypeNotFoundError", constructorId: error.invalidConstructorId }
+            : { err: error }), chatId, messageId,
+        }, "Failed to stream video");
       }
       if (!res.destroyed) {
         if (!res.headersSent) {
           res.removeHeader("Content-Length");
           res.removeHeader("Content-Range");
-          res.status(500).json({ error: "Unable to stream video" });
+          const temporary = error instanceof TypeNotFoundError || error instanceof ServiceUnavailableException;
+          if (temporary) res.setHeader("Retry-After", "30");
+          res.status(temporary ? 503 : 500).json({ error: "Unable to stream video" });
         } else {
           // A truncated body must fail, rather than look like a successful EOF.
           res.destroy();

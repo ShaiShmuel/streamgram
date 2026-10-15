@@ -77,6 +77,7 @@ describe("TelegramNestService - Tag Feature", () => {
   };
 
   const mockClientManager = {
+    assertClientUsable: jest.fn(),
     getOrInitializeClient: jest.fn(),
     disconnectAll: jest.fn(),
   };
@@ -167,7 +168,7 @@ describe("TelegramNestService - Tag Feature", () => {
         season: 1, episode: 2, mimeType: "video/mp4", fileSize: 1024,
       });
       expect(mockCacheService.setSearchResults).toHaveBeenCalledWith(
-        user.token, expect.any(String), results,
+        user.token, expect.any(String), results, expect.objectContaining({ peers: expect.any(Array) }),
       );
       const queries = client.getMessages.mock.calls.map((call: any[]) => call[1].search);
       expect(queries).toEqual(expect.arrayContaining([

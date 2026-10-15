@@ -1,4 +1,4 @@
-import { Injectable, OnApplicationShutdown, Optional } from "@nestjs/common";
+import { Injectable, OnApplicationShutdown, Optional, ServiceUnavailableException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { Api, TelegramClient } from "teleproto";
 import { Logger, LogLevel } from "teleproto/extensions/Logger";
@@ -24,6 +24,9 @@ export class TelegramClientManager implements OnApplicationShutdown {
   private readonly clients = new Map<string, ClientSession>();
   private readonly credentialChecks = new Set<TelegramClient>();
   private readonly failedClients = new WeakSet<TelegramClient>();
+  private readonly disposal = new WeakMap<TelegramClient, Promise<void>>();
+  private readonly retiring = new Map<string, Promise<void>>();
+  private readonly decodeFailures = new Map<string, { at: number; count: number; blockedUntil: number }>();
   private shuttingDown = false;
 
   /**
@@ -110,6 +113,7 @@ export class TelegramClientManager implements OnApplicationShutdown {
     userToken: string,
     sessionString?: string,
   ): Promise<TelegramClient> {
+    if (this.shuttingDown) throw new Error("Telegram client manager is shutting down");
     const session = sessionString || "";
     if (this.instanceConfig && !userToken.startsWith("auth:")) {
       const account = this.instanceConfig.getUserByToken(userToken);
@@ -125,6 +129,11 @@ export class TelegramClientManager implements OnApplicationShutdown {
       throw new Error("Telegram session is not configured");
     }
 
+    const retiring = this.retiring.get(userToken);
+    if (retiring) {
+      await retiring;
+      return this.getOrInitializeClient(userToken, session);
+    }
     const existing = this.clients.get(userToken);
 
     if (existing) {
@@ -147,8 +156,12 @@ export class TelegramClientManager implements OnApplicationShutdown {
         }
         // A disconnected client can still own background update work. Dispose of
         // it before replacing it, including when the connected getter throws.
-        await this.removeClient(userToken);
+        await this.removeClient(userToken, true);
       }
+    }
+
+    if ((this.decodeFailures.get(userToken)?.blockedUntil ?? 0) > Date.now()) {
+      throw new ServiceUnavailableException("Telegram decoding recovery is cooling down; retry shortly");
     }
 
     // If an initialisation is already in progress for this token, reuse it.
@@ -173,6 +186,12 @@ export class TelegramClientManager implements OnApplicationShutdown {
         );
         return client;
       })
+      .catch((error) => {
+        if (error instanceof TypeNotFoundError && (this.generations.get(userToken) ?? 0) === generation) {
+          this.recordDecodeFailure(userToken);
+        }
+        throw error;
+      })
       .finally(() => {
         this.initializing.delete(userToken);
       });
@@ -187,7 +206,7 @@ export class TelegramClientManager implements OnApplicationShutdown {
    */
   getClient(userToken: string): TelegramClient | null {
     const session = this.clients.get(userToken);
-    if (session) {
+    if (session && !this.failedClients.has(session.client)) {
       session.lastUsed = new Date();
       return session.client;
     }
@@ -195,20 +214,84 @@ export class TelegramClientManager implements OnApplicationShutdown {
   }
 
   /** Disconnects and removes the client for `userToken`. */
-  async removeClient(userToken: string): Promise<void> {
+  async removeClient(userToken: string, preserveFailures = false): Promise<void> {
+    if (!preserveFailures) this.decodeFailures.delete(userToken);
     this.generations.set(userToken, (this.generations.get(userToken) ?? 0) + 1);
-    await this.initializing.get(userToken)?.catch(() => undefined);
+    const retiring = this.retiring.get(userToken);
+    if (retiring) return retiring;
+    const pending = this.initializing.get(userToken);
+    if (pending) await pending.catch(() => undefined);
     const session = this.clients.get(userToken);
     if (!session) return;
 
     this.clients.delete(userToken);
+    const disposal = this.disposeClient(session.client);
+    this.retiring.set(userToken, disposal.catch(() => undefined));
     try {
-      await session.client.disconnect();
-      await session.client.destroy();
+      await disposal;
     } catch (error) {
       logger.warn({ error, userToken }, "Failed to disconnect Telegram client");
+    } finally {
+      this.retiring.delete(userToken);
     }
     logger.info({ userToken }, "Removed Telegram client");
+  }
+
+  /** Observe RPC failures as well as background errors; never retry mutations here. */
+  private observeRpcFailures(client: TelegramClient): void {
+    const invoke = client.invoke.bind(client);
+    client.invoke = (async (...args: Parameters<TelegramClient["invoke"]>) => {
+      this.assertClientUsable(client);
+      try {
+        return await invoke(...args);
+      } catch (error) {
+        if (error instanceof TypeNotFoundError) this.failClient(client, error);
+        throw error;
+      }
+    }) as TelegramClient["invoke"];
+  }
+
+  assertClientUsable(client: TelegramClient): void {
+    if (this.failedClients.has(client)) {
+      throw new ServiceUnavailableException("Telegram client failed; acquire a new managed client");
+    }
+  }
+
+  private recordDecodeFailure(token: string): void {
+    const now = Date.now();
+    const previous = this.decodeFailures.get(token);
+    const count = previous && now - previous.at < 60_000 ? previous.count + 1 : 1;
+    this.decodeFailures.set(token, { at: now, count, blockedUntil: count >= 2 ? now + 30_000 : 0 });
+  }
+
+  private disposeClient(client: TelegramClient): Promise<void> {
+    let pending = this.disposal.get(client);
+    if (!pending) {
+      pending = (async () => {
+        try { await client.disconnect(); }
+        finally { await client.destroy(); }
+      })();
+      this.disposal.set(client, pending);
+    }
+    return pending;
+  }
+
+  private failClient(client: TelegramClient, error: Error): void {
+    if (this.failedClients.has(client)) return;
+    this.failedClients.add(client);
+    if (error instanceof TypeNotFoundError) {
+      for (const [token, entry] of this.clients) {
+        if (entry.client === client) this.recordDecodeFailure(token);
+      }
+    }
+    logger.error({
+      errorName: error.constructor.name,
+      ...(error instanceof TypeNotFoundError ? { constructorId: error.invalidConstructorId } : {}),
+    }, "Telegram client failed; disposing before managed recovery");
+    // Never wait for read/update loops from inside their own error callbacks.
+    void this.disposeClient(client).catch(() => {
+      logger.warn("Failed to dispose Telegram client during recovery");
+    });
   }
 
   /** Total number of live clients. */
@@ -222,8 +305,9 @@ export class TelegramClientManager implements OnApplicationShutdown {
       { count: this.clients.size },
       "Disconnecting all Telegram clients",
     );
+
     await Promise.all(
-      Array.from(new Set([...this.clients.keys(), ...this.initializing.keys()])).map((token) => this.removeClient(token)),
+      Array.from(new Set([...this.clients.keys(), ...this.initializing.keys(), ...this.retiring.keys()])).map((token) => this.removeClient(token)),
     );
   }
 
@@ -240,11 +324,11 @@ export class TelegramClientManager implements OnApplicationShutdown {
 
   /** Disconnects clients that have been idle for more than one hour. */
   private async cleanupIdleClients(): Promise<void> {
-    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+    const idleCutoff = new Date(Date.now() - 60 * 60 * 1000);
     const toRemove: string[] = [];
 
     for (const [token, session] of this.clients.entries()) {
-      if (session.lastUsed < oneHourAgo) {
+      if (session.lastUsed < idleCutoff) {
         toRemove.push(token);
       }
     }
@@ -291,6 +375,7 @@ export class TelegramClientManager implements OnApplicationShutdown {
       },
     );
 
+    this.observeRpcFailures(client);
     let lastErrorTime = 0;
     let errorCount = 0;
     const errorLogThrottleMs = 10_000;
@@ -322,15 +407,7 @@ export class TelegramClientManager implements OnApplicationShutdown {
       }
 
       if (error instanceof TypeNotFoundError || errorCount >= maxErrorsBeforeDisconnect) {
-        this.failedClients.add(client);
-        logger.error(
-          { ...errorDetails, errorCount },
-          "Telegram client failed; destroying it before the next request reconnects",
-        );
-        // Do not await shutdown from inside the library's update/read loop.
-        // destroy also stops update synchronization and marks the client unusable.
-        void client.destroy()
-          .catch((err) => logger.debug({ err }, "Error during forced destroy"));
+        this.failClient(client, error);
       }
     };
 
