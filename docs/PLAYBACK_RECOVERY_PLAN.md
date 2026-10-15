@@ -20,8 +20,8 @@ converted directly to big-integer values, never JavaScript numbers.
 
 All routes delegate to one streaming handler. Preparation constructs a typed
 InputPeer directly and fetches the message with that peer. The message supplies
-the current document access hash and fileReference needed for download. Even a
-message-metadata cache hit still fetches the message from Telegram.
+the current document access hash and fileReference needed for download. The
+redundant message-metadata cache has been removed.
 
 ## Source generation and caching
 
@@ -42,6 +42,8 @@ coordinated writes/deletions. Cache eviction does not invalidate saved URLs.
 - The manager owns persistent clients and observes background and direct RPC errors.
 - TypeNotFoundError marks the client unusable; disconnect/destroy happens once.
 - Concurrent requests wait for retirement and share replacement initialization.
+- Idle cleanup runs every minute and closes unused clients after 15 minutes.
+- RPCs, complete searches and HTTP streams retain their exact client until completion; idle cleanup skips retained clients. Explicit removal and recovery still work.
 - Repeated decode failures trigger the existing cooldown.
 - Read-only playback preparation retries once with the same supplied peer.
 - Failed clients cannot publish source results to the cache.

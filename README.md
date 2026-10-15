@@ -317,3 +317,37 @@ private account links, like the token-prefixed addon URL.
 
 Decode-failure detection, managed client replacement and one bounded preparation
 retry remain enabled. See [playback recovery](docs/PLAYBACK_RECOVERY_PLAN.md).
+
+### Cache and connection lifetimes
+
+Telegram clients are closed after 15 minutes without activity, checked once per
+minute. In-flight RPCs, complete searches and HTTP playback requests retain their
+client until completion (including backpressure and cooldown waits). The idle
+clock restarts on release. Explicit removal, shutdown and failed-client recovery
+still close clients immediately when needed.
+
+| Category | Lifetime |
+| --- | --- |
+| Successful Telegram searches | 30 minutes |
+| Empty Telegram searches | 1 minute |
+| Channel/folder video lists | 1 minute |
+| Folder catalogs | 5 minutes |
+| Series-channel discovery | 5 minutes |
+| Duplicate tag prevention | 5 minutes |
+| TMDB metadata | 24 hours; empty ID lookups 1 minute |
+| Wikidata titles by IMDb ID and language | 7 days |
+
+Metadata requests with identical keys share one in-flight lookup. TMDB cache keys
+include a hash of the effective credential and the request language; Wikidata
+keys include both requested languages. Failed requests and missing Wikidata
+results are not cached. Cached metadata is copied for each caller.
+
+All application cache writes go through CacheService, which enforces a combined
+10,000-entry bound and the existing 1,000-source-list bound. Expired entries are
+removed on writes before capacity eviction. Clearing the cache also prevents
+older pending metadata requests from repopulating it. TTL settings in
+`src/config/configuration.ts` use seconds; Telegram lifecycle settings ending in
+`Ms` use milliseconds. The cache-manager boundary receives milliseconds.
+
+There is no separate message-metadata cache: playback always fetches the current
+Telegram message and file reference. The decode-recovery cooldown remains 30 seconds.

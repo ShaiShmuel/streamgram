@@ -70,14 +70,13 @@ describe("TelegramNestService - Tag Feature", () => {
   const mockCacheService = {
     getSearchResults: jest.fn(),
     setSearchResults: jest.fn(),
-    getMessageDetails: jest.fn(),
-    setMessageDetails: jest.fn(),
     getStats: jest.fn(),
     clearAll: jest.fn(),
     cleanup: jest.fn(),
   };
 
   const mockClientManager = {
+    retainClient: jest.fn(() => jest.fn()),
     assertClientUsable: jest.fn(),
     getOrInitializeClient: jest.fn(),
     disconnectAll: jest.fn(),

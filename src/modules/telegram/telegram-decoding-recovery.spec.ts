@@ -49,7 +49,6 @@ describe("Telegram RPC decoding recovery", () => {
     manager = new TelegramClientManager(configuration);
     initialize = jest.spyOn(manager as unknown as { initializeClient(session: string): Promise<TelegramClient> }, "initializeClient");
     cache = new CacheService(createCache(), configuration);
-    await cache.setMessageDetails("123", 7, {});
     service = new TelegramNestService(cache, configuration, manager);
   });
   afterEach(async () => {
@@ -62,7 +61,7 @@ describe("Telegram RPC decoding recovery", () => {
     const old = makeClient(true), replacement = makeClient(false);
     (replacement.getInputEntity as jest.Mock).mockRejectedValue(new Error("Empty entity cache"));
     initialize.mockResolvedValueOnce(old).mockResolvedValueOnce(replacement);
-    expect(await prepare()).toEqual({ client: replacement, message });
+    expect(await prepare()).toMatchObject({ client: replacement, message });
     expect(old.destroy).toHaveBeenCalledTimes(1);
     expect(replacement.getInputEntity).not.toHaveBeenCalled();
     expect(manager.getClient("account")).toBe(replacement);
@@ -135,7 +134,6 @@ describe("Telegram RPC decoding recovery", () => {
     const client = makeClient(false);
     (client.getInputEntity as jest.Mock).mockRejectedValue(new Error("Empty entity cache"));
     initialize.mockResolvedValue(client);
-    jest.spyOn(service, "getFileSize").mockReturnValue(1);
     await service.preparePlayback("account", "session",
       { kind: "channel", id: "321", accessHash: "-9223372036854775808" }, 7, new AbortController().signal);
     expect(client.getMessages).toHaveBeenCalledWith(

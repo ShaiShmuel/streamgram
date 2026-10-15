@@ -1,3 +1,5 @@
+import { CacheService } from "../cache/cache.service";
+import { createCache } from "cache-manager";
 import { Test, TestingModule } from "@nestjs/testing";
 import { ConfigService } from "@nestjs/config";
 import { TmdbService } from "./tmdb.service";
@@ -28,6 +30,7 @@ describe("TmdbService", () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         TmdbService,
+        { provide: CacheService, useFactory: () => new CacheService(createCache(), new ConfigService()) },
         {
           provide: ConfigService,
           useValue: mockConfigService,
@@ -58,7 +61,7 @@ describe("TmdbService", () => {
         }),
       };
 
-      expect(new TmdbService(badConfigService as any)).toBeDefined();
+      expect(new TmdbService(badConfigService as any, new CacheService(createCache(), new ConfigService()))).toBeDefined();
     });
   });
 

@@ -1722,6 +1722,21 @@ export class TelegramNestService {
     user: InstanceProfile,
     catalogId?: string,
   ): Promise<MediaSearchResult[]> {
+    const release = this.clientManager.retainClient(client);
+    try {
+      return await this.searchMediaWithClient(client, query, media, user, catalogId);
+    } finally {
+      release();
+    }
+  }
+
+  private async searchMediaWithClient(
+    client: TelegramClient,
+    query: string,
+    media: MediaDetails,
+    user: InstanceProfile,
+    catalogId?: string,
+  ): Promise<MediaSearchResult[]> {
     const language = this.refreshRuntimeConfig(user);
     const episodeInfo = media.episodeInfo || null;
     const queries = this.generateSearchQueries(query, media, catalogId);
@@ -1996,17 +2011,19 @@ export class TelegramNestService {
     reference: PlaybackPeer,
     messageId: number,
     signal: AbortSignal,
-  ): Promise<{ client: TelegramClient; message: Message }> {
+  ): Promise<{ client: TelegramClient; message: Message; release: () => void }> {
     const entity = this.inputPeer(reference);
     const chatId = reference.id;
     for (let attempt = 0; attempt < 2; attempt++) {
       if (signal.aborted) throw new Error("Playback preparation cancelled");
       const client = await this.getClientForUser(userToken, sessionString);
+      const release = this.clientManager.retainClient(client);
       try {
         if (signal.aborted) throw new Error("Playback preparation cancelled");
-        const message = await this.getMessageWithCache(client, chatId, messageId, entity);
-        return { client, message };
+        const message = await this.getPlaybackMessage(client, chatId, messageId, entity);
+        return { client, message, release };
       } catch (error) {
+        release();
         if (!(error instanceof TypeNotFoundError) || attempt === 1 || signal.aborted) throw error;
         logger.warn({ chatId, messageId, constructorId: error.invalidConstructorId },
           "Retrying playback preparation after Telegram decoding failure");
@@ -2015,23 +2032,12 @@ export class TelegramNestService {
     throw new Error("Playback preparation failed");
   }
 
-  async getMessageWithCache(
+  private async getPlaybackMessage(
     client: TelegramClient,
     chatId: string,
     messageId: number,
     resolvedEntity: Api.TypeInputPeer,
   ): Promise<Message> {
-    const cached = await this.cache.getMessageDetails<{
-      fileSize: number;
-      mimeType: string | null;
-    }>(chatId, messageId);
-
-    if (cached) {
-      logger.debug({ chatId, messageId }, "Message metadata cache hit");
-    } else {
-      logger.debug({ chatId, messageId }, "Message metadata cache miss");
-    }
-
     let message: Message | undefined;
     try {
       const result = await client.getMessages(resolvedEntity, {
@@ -2052,15 +2058,6 @@ export class TelegramNestService {
 
     if (!message) {
       throw new Error(`Message ${messageId} not found in chat ${chatId}`);
-    }
-
-    if (!cached) {
-      const context = this.getDownloadContext(message);
-      await this.cache.setMessageDetails(chatId, messageId, {
-        fileSize: this.getFileSize(message),
-        mimeType: context?.document.mimeType ?? null,
-        fileName: message.file?.name || null,
-      });
     }
 
     return message;

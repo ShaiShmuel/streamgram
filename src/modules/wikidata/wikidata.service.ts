@@ -1,3 +1,4 @@
+import { CacheService } from "../cache/cache.service";
 import { Injectable } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { WikidataResponse } from "../tmdb/types";
@@ -7,7 +8,7 @@ export class WikidataService {
   private readonly wikidataBaseUrl: string;
   private readonly wikidataSparqlEndpoint: string;
 
-  constructor(private configService: ConfigService) {
+  constructor(private configService: ConfigService, private readonly cache: CacheService) {
     this.wikidataBaseUrl = this.configService.get<string>(
       "wikidata.baseUrl",
       "https://query.wikidata.org",
@@ -38,6 +39,14 @@ export class WikidataService {
     imdbId: string,
     userLanguage: string,
     defaultLanguage: string = "en",
+  ): Promise<{ titleEn: string; titleLocalized: string | null } | null> {
+    const key = `wikidata:${JSON.stringify([this.wikidataBaseUrl, this.wikidataSparqlEndpoint, imdbId, userLanguage, defaultLanguage])}`;
+    return this.cache.remember(key, this.configService.get<number>("cache.wikidataTtl", 604800),
+      () => this.fetchTitles(imdbId, userLanguage, defaultLanguage));
+  }
+
+  private async fetchTitles(
+    imdbId: string, userLanguage: string, defaultLanguage: string,
   ): Promise<{ titleEn: string; titleLocalized: string | null } | null> {
     try {
       // Build SPARQL query to fetch both English and user's preferred language

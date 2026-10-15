@@ -1,0 +1,74 @@
+import { ConfigService } from "@nestjs/config";
+import { createCache } from "cache-manager";
+import { CacheService } from "../cache/cache.service";
+import { TmdbService } from "./tmdb.service";
+import { WikidataService } from "../wikidata/wikidata.service";
+
+describe("External metadata caching", () => {
+  const config = new ConfigService({
+    tmdb: { baseUrl: "https://tmdb.test/3", bearerToken: "token-a" },
+    language: { defaultLanguage: "en", preferredLanguage: "en" },
+    wikidata: { baseUrl: "https://wikidata.test", sparqlEndpoint: "/sparql" },
+  });
+  afterEach(() => jest.restoreAllMocks());
+
+  it("coalesces TMDB reads for 24 hours, separating language and credential scope", async () => {
+    let now = Date.now();
+    jest.spyOn(Date, "now").mockImplementation(() => now);
+    const fetcher = jest.spyOn(global, "fetch").mockImplementation(async () => new Response(JSON.stringify({
+      id: 1, title: "סרט", original_title: "Movie", release_date: "2025-01-01",
+    })));
+    const service = new TmdbService(config, new CacheService(createCache(), config));
+    await Promise.all(Array.from({ length: 10 }, () => service.getMovieDetailsByTmdbId(1, "en")));
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    await service.getMovieDetailsByTmdbId(1, "he");
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    await service.getMovieDetailsByTmdbId(1, "en", "token-b");
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    now += 86400001;
+    await service.getMovieDetailsByTmdbId(1, "en");
+    expect(fetcher).toHaveBeenCalledTimes(4);
+  });
+
+  it("does not cache TMDB HTTP failures", async () => {
+    const fetcher = jest.spyOn(global, "fetch")
+      .mockResolvedValueOnce(new Response("", { status: 503 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ id: 1, title: "Movie" })));
+    const service = new TmdbService(config, new CacheService(createCache(), config));
+    await expect(service.getMovieDetailsByTmdbId(1, "en")).rejects.toThrow("503");
+    await expect(service.getMovieDetailsByTmdbId(1, "en")).resolves.toMatchObject({ title: "Movie" });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it("caches Wikidata titles for seven days with language-specific keys", async () => {
+    let now = Date.now();
+    jest.spyOn(Date, "now").mockImplementation(() => now);
+    const fetcher = jest.spyOn(global, "fetch").mockImplementation(async () => new Response(JSON.stringify({
+      results: { bindings: [{ labelEn: { value: "Movie" }, labelLocalized: { value: "סרט" } }] },
+    })));
+    const service = new WikidataService(config, new CacheService(createCache(), config));
+    await Promise.all(Array.from({ length: 10 }, () => service.fetchTitlesByImdbId("tt1", "he")));
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    await service.fetchTitlesByImdbId("tt1", "ru");
+    await service.fetchTitlesByImdbId("tt1", "he", "fr");
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    now += 6 * 86400000;
+    await service.fetchTitlesByImdbId("tt1", "he");
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    now += 86400001;
+    await service.fetchTitlesByImdbId("tt1", "he");
+    expect(fetcher).toHaveBeenCalledTimes(4);
+  });
+
+  it("retries missing Wikidata results and upstream failures", async () => {
+    const fetcher = jest.spyOn(global, "fetch")
+      .mockResolvedValueOnce(new Response("", { status: 503 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ results: { bindings: [] } })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ results: { bindings: [{ labelEn: { value: "Movie" } }] } })));
+    const service = new WikidataService(config, new CacheService(createCache(), config));
+    expect(await service.fetchTitlesByImdbId("tt1", "en")).toBeNull();
+    expect(await service.fetchTitlesByImdbId("tt1", "en")).toBeNull();
+    expect(await service.fetchTitlesByImdbId("tt1", "en")).toEqual({ titleEn: "Movie", titleLocalized: null });
+    expect(fetcher).toHaveBeenCalledTimes(3);
+  });
+});

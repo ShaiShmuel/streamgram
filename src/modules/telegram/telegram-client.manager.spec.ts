@@ -10,7 +10,7 @@ type ClientInitializer = { initializeClient(session: string): Promise<TelegramCl
 describe("Managed client lifecycle", () => {
   let manager: TelegramClientManager;
   const configuration = {
-    get: (key: string) => (key === "telegram.apiId" ? 12345 : "api-hash"),
+    get: (key: string, fallback: unknown) => key === "telegram.apiId" ? 12345 : key === "telegram.apiHash" ? "api-hash" : fallback,
   } as ConfigService;
   const client = () =>
     ({
@@ -25,6 +25,78 @@ describe("Managed client lifecycle", () => {
     await manager.onApplicationShutdown();
     jest.restoreAllMocks();
   });
+  it("keeps concurrent operations alive and starts idle time after the final release", async () => {
+    let now = Date.now();
+    jest.spyOn(Date, "now").mockImplementation(() => now);
+    const managed = client();
+    jest.spyOn(manager as unknown as ClientInitializer, "initializeClient").mockResolvedValue(managed);
+    await manager.getOrInitializeClient("a", "session");
+    const cleanup = () => (manager as unknown as { cleanupIdleClients(): Promise<void> }).cleanupIdleClients();
+    const first = manager.retainClient(managed);
+    const second = manager.retainClient(managed);
+    now += 2 * 60 * 60 * 1000;
+    await cleanup();
+    first(); first(); // Releases must be idempotent.
+    await cleanup();
+    expect(managed.destroy).not.toHaveBeenCalled();
+    second();
+    now += 14 * 60 * 1000;
+    await cleanup();
+    expect(managed.destroy).not.toHaveBeenCalled();
+    now += 60 * 1000;
+    await cleanup();
+    expect(managed.destroy).toHaveBeenCalledTimes(1);
+  });
+
+  it("rechecks activity after awaiting another client's disposal", async () => {
+    let now = Date.now();
+    jest.spyOn(Date, "now").mockImplementation(() => now);
+    const a = client(), b = client();
+    let finish!: () => void;
+    (a.disconnect as jest.Mock).mockReturnValue(new Promise<void>(resolve => { finish = resolve; }));
+    jest.spyOn(manager as unknown as ClientInitializer, "initializeClient").mockResolvedValueOnce(a).mockResolvedValueOnce(b);
+    await manager.getOrInitializeClient("a", "session");
+    await manager.getOrInitializeClient("b", "session");
+    now += 16 * 60 * 1000;
+    const cleanup = (manager as unknown as { cleanupIdleClients(): Promise<void> }).cleanupIdleClients();
+    const release = manager.retainClient(b);
+    finish();
+    await cleanup;
+    expect(b.destroy).not.toHaveBeenCalled();
+    release();
+  });
+
+  it("still forcibly removes a client with active operations", async () => {
+    const managed = client();
+    jest.spyOn(manager as unknown as ClientInitializer, "initializeClient").mockResolvedValue(managed);
+    await manager.getOrInitializeClient("a", "session");
+    const release = manager.retainClient(managed);
+    await manager.removeClient("a");
+    expect(managed.destroy).toHaveBeenCalledTimes(1);
+    release();
+  });
+
+  it("protects an in-flight RPC and releases activity when it rejects", async () => {
+    let now = Date.now();
+    jest.spyOn(Date, "now").mockImplementation(() => now);
+    let reject!: (error: Error) => void;
+    const managed = Object.assign(client(), { invoke: jest.fn(() => new Promise((_, fail) => { reject = fail; })) });
+    (manager as unknown as { observeRpcFailures(client: TelegramClient): void }).observeRpcFailures(managed);
+    jest.spyOn(manager as unknown as ClientInitializer, "initializeClient").mockResolvedValue(managed);
+    await manager.getOrInitializeClient("a", "session");
+    const request = managed.invoke(new Api.help.GetConfig());
+    const failure = expect(request).rejects.toThrow("RPC failed");
+    now += 16 * 60 * 1000;
+    const cleanup = () => (manager as unknown as { cleanupIdleClients(): Promise<void> }).cleanupIdleClients();
+    await cleanup();
+    expect(managed.destroy).not.toHaveBeenCalled();
+    reject(new Error("RPC failed"));
+    await failure;
+    now += 15 * 60 * 1000;
+    await cleanup();
+    expect(managed.destroy).toHaveBeenCalledTimes(1);
+  });
+
   it("cancels an initialization that finishes after deletion", async () => {
     let resolve!: (client: TelegramClient) => void;
     jest

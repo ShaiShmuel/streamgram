@@ -1,3 +1,5 @@
+import { createHash } from "crypto";
+import { CacheService } from "../cache/cache.service";
 import { Injectable, Optional } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InstanceConfigService } from "../user/instance-config.service";
@@ -82,6 +84,7 @@ export class TmdbService {
 
   constructor(
     private configService: ConfigService,
+    private readonly cache: CacheService,
     @Optional() private readonly instanceConfig?: InstanceConfigService,
   ) {
     this.fallbackBearerToken = this.configService.get<string>(
@@ -133,18 +136,20 @@ export class TmdbService {
         "TMDB is not configured. Complete the setup wizard or set TMDB_BEARER_TOKEN.",
       );
     }
-    const response = await fetch(uri.toString(), {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: "application/json",
-      },
+    // Include the credential scope without retaining tokens in cache keys.
+    const scope = createHash("sha256").update(token).digest("hex");
+    return this.cache.remember<T>(`tmdb:${scope}:${uri}`, (value) => {
+      const resultLists = Object.entries(value as Record<string, unknown>)
+        .filter(([key]) => key.endsWith("_results"));
+      const emptyLookup = resultLists.length > 0 && resultLists.every(([, list]) => Array.isArray(list) && list.length === 0);
+      return emptyLookup ? 60 : this.configService.get<number>("cache.tmdbTtl", 86400);
+    }, async () => {
+      const response = await fetch(uri.toString(), {
+        headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+      });
+      if (!response.ok) throw new Error(`TMDB request failed with status ${response.status}`);
+      return (await response.json()) as T;
     });
-
-    if (!response.ok) {
-      throw new Error(`TMDB request failed with status ${response.status}`);
-    }
-
-    return (await response.json()) as T;
   }
 
   private extractYear(date?: string): number | null {

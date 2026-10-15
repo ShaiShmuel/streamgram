@@ -1,5 +1,7 @@
 export default () => ({
   telegram: {
+    idleTimeoutMs: 15 * 60 * 1000,
+    cleanupIntervalMs: 60 * 1000,
     apiId: parseInt(process.env.TELEGRAM_API_ID || "0", 10),
     apiHash: process.env.TELEGRAM_API_HASH || "",
   },
@@ -20,8 +22,11 @@ export default () => ({
   cache: {
     defaultTtl: 3600,
     searchTtl: 1800,
-    messageTtl: 7200,
-    folderTtl: 60,
+    emptySearchTtl: 60,
+    folderTtl: 300,
+    tmdbTtl: 24 * 60 * 60,
+    wikidataTtl: 7 * 24 * 60 * 60,
+    maxEntries: 10000,
     channelVideosTtl: 60,
   },
   language: {

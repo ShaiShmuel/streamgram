@@ -16,7 +16,7 @@ export interface ClientSession {
 /**
  * Manages Telegram client instances keyed by user token.
  * Each user gets their own lazily-initialised client that is kept alive
- * in-memory for up to one hour of idle time.
+ * in-memory for fifteen minutes after the last active operation.
  */
 @Injectable()
 export class TelegramClientManager implements OnApplicationShutdown {
@@ -28,6 +28,8 @@ export class TelegramClientManager implements OnApplicationShutdown {
   private readonly retiring = new Map<string, Promise<void>>();
   private readonly decodeFailures = new Map<string, { at: number; count: number; blockedUntil: number }>();
   private shuttingDown = false;
+  private readonly activity = new WeakMap<TelegramClient, { count: number; lastUsed: number }>();
+  private readonly idleTimeoutMs: number;
 
   /**
    * Serialises concurrent initialisation attempts for the same token so that
@@ -49,10 +51,11 @@ export class TelegramClientManager implements OnApplicationShutdown {
       );
     }
 
-    // Clean up clients idle for more than one hour, every 30 minutes.
+    this.idleTimeoutMs = this.configService.get<number>("telegram.idleTimeoutMs", 15 * 60 * 1000);
+    // Active operations are excluded from idle cleanup.
     this.cleanupTimer = setInterval(
       () => void this.cleanupIdleClients(),
-      30 * 60 * 1000,
+      this.configService.get<number>("telegram.cleanupIntervalMs", 60 * 1000),
     );
   }
 
@@ -237,16 +240,36 @@ export class TelegramClientManager implements OnApplicationShutdown {
     logger.info({ userToken }, "Removed Telegram client");
   }
 
+  /** Keep this exact client alive until an operation ends, including backpressure/waits. */
+  retainClient(client: TelegramClient): () => void {
+    this.assertClientUsable(client);
+    let activity = this.activity.get(client);
+    if (!activity) {
+      activity = { count: 0, lastUsed: Date.now() };
+      this.activity.set(client, activity);
+    }
+    activity.count++;
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      activity.count--;
+      activity.lastUsed = Date.now();
+    };
+  }
+
   /** Observe RPC failures as well as background errors; never retry mutations here. */
   private observeRpcFailures(client: TelegramClient): void {
     const invoke = client.invoke.bind(client);
     client.invoke = (async (...args: Parameters<TelegramClient["invoke"]>) => {
-      this.assertClientUsable(client);
+      const release = this.retainClient(client);
       try {
         return await invoke(...args);
       } catch (error) {
         if (error instanceof TypeNotFoundError) this.failClient(client, error);
         throw error;
+      } finally {
+        release();
       }
     }) as TelegramClient["invoke"];
   }
@@ -322,26 +345,14 @@ export class TelegramClientManager implements OnApplicationShutdown {
   // Private helpers
   // ---------------------------------------------------------------------------
 
-  /** Disconnects clients that have been idle for more than one hour. */
+  /** Recheck each client immediately before removal; earlier disposal can await I/O. */
   private async cleanupIdleClients(): Promise<void> {
-    const idleCutoff = new Date(Date.now() - 60 * 60 * 1000);
-    const toRemove: string[] = [];
-
-    for (const [token, session] of this.clients.entries()) {
-      if (session.lastUsed < idleCutoff) {
-        toRemove.push(token);
+    for (const [token, session] of this.clients) {
+      const activity = this.activity.get(session.client);
+      const lastUsed = Math.max(session.lastUsed.getTime(), activity?.lastUsed ?? 0);
+      if (!activity?.count && lastUsed <= Date.now() - this.idleTimeoutMs) {
+        await this.removeClient(token);
       }
-    }
-
-    for (const token of toRemove) {
-      await this.removeClient(token);
-    }
-
-    if (toRemove.length > 0) {
-      logger.info(
-        { count: toRemove.length, remaining: this.clients.size },
-        "Cleaned up idle Telegram clients",
-      );
     }
   }
 

@@ -15,7 +15,11 @@ type CacheValue =
 export class CacheService {
   private readonly defaultTtl: number;
   private readonly searchTtl: number;
-  private readonly messageTtl: number;
+  private readonly emptySearchTtl: number;
+  private readonly maxEntries: number;
+  private readonly entryKeys = new Map<string, number>();
+  private readonly inFlight = new Map<string, Promise<unknown>>();
+  private clearGeneration = 0;
   private readonly folderTtl: number;
   private readonly channelVideosTtl: number;
   // Bound result entries without retaining a separate copy of their payload.
@@ -28,11 +32,12 @@ export class CacheService {
   ) {
     this.defaultTtl = this.configService.get<number>("cache.defaultTtl", 3600);
     this.searchTtl = this.configService.get<number>("cache.searchTtl", 1800);
-    this.messageTtl = this.configService.get<number>("cache.messageTtl", 7200);
-    this.folderTtl = this.configService.get<number>("cache.folderTtl", 3600);
+    this.emptySearchTtl = this.configService.get<number>("cache.emptySearchTtl", 60);
+    this.maxEntries = this.configService.get<number>("cache.maxEntries", 10000);
+    this.folderTtl = this.configService.get<number>("cache.folderTtl", 300);
     this.channelVideosTtl = this.configService.get<number>(
       "cache.channelVideosTtl",
-      1800,
+      60,
     );
   }
 
@@ -43,23 +48,36 @@ export class CacheService {
     return pending;
   }
 
-  private pruneResultKeys(): void {
-    for (const [key, expiresAt] of this.resultKeys) {
-      if (expiresAt <= Date.now()) this.resultKeys.delete(key);
+  // Called only inside writeResults: enforce a real bound on the underlying store.
+  private async setEntry<T>(key: string, value: T, ttlMs: number): Promise<void> {
+    const now = Date.now();
+    for (const [expiredKey, expiresAt] of this.entryKeys) {
+      if (expiresAt <= now) await this.deleteEntry(expiredKey);
     }
+    if (!this.entryKeys.has(key) && this.entryKeys.size >= this.maxEntries) {
+      const oldest = this.entryKeys.keys().next().value;
+      if (oldest !== undefined) await this.deleteEntry(oldest);
+    }
+    await this.cacheManager.set(key, value, ttlMs);
+    this.entryKeys.delete(key);
+    this.entryKeys.set(key, ttlMs === 0 ? Infinity : now + ttlMs);
+  }
+
+  private async deleteEntry(key: string): Promise<void> {
+    await this.cacheManager.del(key);
+    this.entryKeys.delete(key);
+    this.resultKeys.delete(key);
   }
 
   private async setResults(key: string, streams: CacheValue, ttlMs: number): Promise<void> {
     await this.writeResults(async () => {
-      await this.cacheManager.set(key, streams, ttlMs);
-      this.pruneResultKeys();
+      await this.setEntry(key, streams, ttlMs);
       this.resultKeys.delete(key);
       this.resultKeys.set(key, Date.now() + ttlMs);
       if (this.resultKeys.size > 1000) {
         const oldest = this.resultKeys.keys().next().value;
         if (oldest !== undefined) {
-          await this.cacheManager.del(oldest);
-          this.resultKeys.delete(oldest);
+          await this.deleteEntry(oldest);
         }
       }
     });
@@ -71,10 +89,6 @@ export class CacheService {
 
   private searchKey(userToken: string, key: string): string {
     return `u:${userToken}:search:${key}`;
-  }
-
-  private messageKey(chatId: string, messageId: number): string {
-    return `stream:${chatId}+${messageId}`;
   }
 
   private folderKey(userToken: string): string {
@@ -90,15 +104,14 @@ export class CacheService {
   }
 
   async set<T>(key: string, value: T, ttl?: number): Promise<void> {
-    const ttlMs = ttl ? ttl * 1000 : this.defaultTtl * 1000;
-    await this.cacheManager.set(key, value, ttlMs);
+    const ttlMs = (ttl ?? this.defaultTtl) * 1000;
+    await this.writeResults(() => this.setEntry(key, value, ttlMs));
   }
 
   async del(key: string | string[]): Promise<void> {
     await this.writeResults(async () => {
       for (const item of Array.isArray(key) ? key : [key]) {
-        await this.cacheManager.del(item);
-        this.resultKeys.delete(item);
+        await this.deleteEntry(item);
       }
     });
   }
@@ -131,7 +144,7 @@ export class CacheService {
       await this.setResults(
         this.searchKey(userToken, cacheKey),
         value,
-        this.searchTtl * 1000,
+        (Array.isArray(value) && value.length === 0 ? this.emptySearchTtl : this.searchTtl) * 1000,
       );
       return true;
     } catch {
@@ -143,30 +156,31 @@ export class CacheService {
     await this.del(this.searchKey(userToken, cacheKey));
   }
 
-  async getMessageDetails<T>(
-    chatId: string,
-    messageId: number,
-  ): Promise<T | null> {
-    const value = await this.cacheManager.get<T>(
-      this.messageKey(chatId, messageId),
-    );
-    return value !== undefined ? value : null;
-  }
-
-  async setMessageDetails(
-    chatId: string,
-    messageId: number,
-    value: CacheValue,
-  ): Promise<boolean> {
+  /** Coalesce metadata reads; cache successful values and give callers independent copies. */
+  async remember<T>(key: string, ttl: number | ((value: T) => number), load: () => Promise<T>): Promise<T> {
+    const generation = this.clearGeneration;
+    const cached = await this.get<T>(key);
+    if (cached !== undefined) return structuredClone(cached);
+    let pending = this.inFlight.get(key) as Promise<T> | undefined;
+    if (!pending) {
+      pending = (async () => {
+        const value = await load();
+        if (value !== null && value !== undefined) {
+          await this.writeResults(async () => {
+            if (generation === this.clearGeneration) {
+              await this.setEntry(key, structuredClone(value), (typeof ttl === "function" ? ttl(value) : ttl) * 1000);
+            }
+          });
+        }
+        return value;
+      })();
+      // Bound bookkeeping even during a burst of distinct requests.
+      if (this.inFlight.size < this.maxEntries) this.inFlight.set(key, pending);
+    }
     try {
-      await this.cacheManager.set(
-        this.messageKey(chatId, messageId),
-        value,
-        this.messageTtl * 1000,
-      );
-      return true;
-    } catch {
-      return false;
+      return structuredClone(await pending);
+    } finally {
+      if (this.inFlight.get(key) === pending) this.inFlight.delete(key);
     }
   }
 
@@ -176,8 +190,11 @@ export class CacheService {
 
   async clearAll(): Promise<boolean> {
     return this.writeResults(async () => {
+      this.clearGeneration++;
+      this.inFlight.clear();
       const cleared = await this.cacheManager.clear();
       this.resultKeys.clear();
+      this.entryKeys.clear();
       return cleared;
     });
   }
@@ -195,11 +212,7 @@ export class CacheService {
    */
   async setUserFolders(userToken: string, value: CacheValue): Promise<boolean> {
     try {
-      await this.cacheManager.set(
-        this.folderKey(userToken),
-        value,
-        this.folderTtl * 1000,
-      );
+      await this.set(this.folderKey(userToken), value, this.folderTtl);
       return true;
     } catch {
       return false;
@@ -210,7 +223,7 @@ export class CacheService {
    * Invalidate cached user folders
    */
   async invalidateUserFolders(userToken: string): Promise<void> {
-    await this.cacheManager.del(this.folderKey(userToken));
+    await this.del(this.folderKey(userToken));
   }
 
   /**

@@ -58,6 +58,7 @@ Standard NestJS pattern: each feature has `*.module.ts`, `*.controller.ts`, `*.s
 
 - `TelegramClientManager` maintains one lazy client per account
 - Clients are lazy-initialized on first use
+- Idle cleanup runs every minute after 15 minutes without activity; use `retainClient`/release for operations spanning multiple RPCs or HTTP streaming
 - Clients are disconnected during account deletion, replacement, restore, and application shutdown
 - Streaming services receive the managed client for the requested account
 
@@ -123,7 +124,7 @@ Multi-language search system with ISO 639-1 codes. Config at `configuration.ts` 
 
 ### Streaming
 
-- Byte-range streaming via `/watch/:chatId/:messageId`
+- Byte-range streaming via `/:userToken/watch/channel/:chatId/:accessHash/:messageId`, the corresponding `user` route, or `/watch/chat/:chatId/:messageId` for basic groups
 - Implements HTTP 206 Partial Content for seeking
 - Chunk size: 1MB (configurable in config)
 

@@ -11,8 +11,8 @@ import { CacheService } from "./cache.service";
       inject: [ConfigService],
       useFactory: async (configService: ConfigService) => {
         return {
-          ttl: configService.get<number>("cache.defaultTtl") || 3600,
-          max: 10000, // Maximum number of items in cache
+          ttl: (configService.get<number>("cache.defaultTtl") ?? 3600) * 1000,
+          // CacheService enforces the entry limit across every cache category.
         };
       },
     }),
