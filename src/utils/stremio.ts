@@ -224,7 +224,7 @@ export function formatStreamForStremio(
 }
 
 /**
- * Creates a synthetic "How to Tag" instructional stream result
+ * Creates a file-matching help stream that sends a tag and opens instructions
  * that shows users how to tag media using the /tag command in Telegram.
  *
  * @param userLanguage - ISO 639-1 language code (e.g., "en", "he", "ru", "ar")
@@ -236,7 +236,7 @@ export function formatStreamForStremio(
  * @example
  * // For a movie:
  * createHowToTagStream("en", { title: "Tarzan", year: 2002, type: "movie" }, "tt0285252", "instance")
- * // Returns: { name: "How to Tag", title: "/tag tt0285252", url: "https://api.com/tag/tt0285252", ... }
+ * // The title describes sending the tag and opening instructions, followed by /tag tt0285252.
  *
  * @example
  * // For a series episode:
@@ -246,7 +246,7 @@ export function formatStreamForStremio(
  *   type: "series",
  *   episodeInfo: { season: 1, episode: 1 }
  * }, "tt0108778:1:1", "instance")
- * // Returns: { name: "איך לתייג", title: "/tag tt0108778:1:1", url: "https://api.com/tag/tt0108778%3A1%3A1", ... }
+ * // The localized description is followed by /tag tt0108778:1:1.
  */
 export function createHowToTagStream(
   userLanguage: string,
@@ -329,8 +329,8 @@ export function createHowToTagStream(
   }
 
   return {
-    name: `StreamGram\n🏷️ ${(langConfig as any).howToTagLabel}`,
-    title: tagTitle,
+    name: `StreamGram\n🔎 ${langConfig.howToTagLabel}`,
+    title: `${langConfig.tagActionDescription}\n${tagTitle}`,
     url: tagUrl,
     behaviorHints: { notWebReady: false },
   };

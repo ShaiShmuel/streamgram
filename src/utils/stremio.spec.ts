@@ -27,7 +27,8 @@ jest.mock("../config/configuration", () => ({
           dubbedIndicators: ["hebdub"],
           subtitleLabel: "Built-in Subtitles",
           dubbedLabel: "Dubbed",
-          howToTagLabel: "How to Tag",
+          howToTagLabel: "Help find this file",
+          tagActionDescription: "Send tag & view instructions",
           noLocalizedTitleMessage: "No localized title available",
         },
         he: {
@@ -38,7 +39,8 @@ jest.mock("../config/configuration", () => ({
           dubbedIndicators: ["מדובב"],
           subtitleLabel: "תרגום מובנה",
           dubbedLabel: "מדובב",
-          howToTagLabel: "איך לתייג",
+          howToTagLabel: "עזרה במציאת הקובץ",
+          tagActionDescription: "שליחת תג ופתיחת הוראות",
           noLocalizedTitleMessage: "אין כותרת בעברית",
         },
         ru: {
@@ -49,7 +51,8 @@ jest.mock("../config/configuration", () => ({
           dubbedIndicators: ["дубляж", "озвучка"],
           subtitleLabel: "Встроенные субтитры",
           dubbedLabel: "Дубляж",
-          howToTagLabel: "Как отметить",
+          howToTagLabel: "Помочь найти файл",
+          tagActionDescription: "Отправить тег и открыть инструкцию",
           noLocalizedTitleMessage: "Нет локализованного названия",
         },
         ar: {
@@ -60,7 +63,8 @@ jest.mock("../config/configuration", () => ({
           dubbedIndicators: ["مدبلج"],
           subtitleLabel: "ترجمة مدمجة",
           dubbedLabel: "مدبلج",
-          howToTagLabel: "كيفية الوسم",
+          howToTagLabel: "المساعدة في العثور على الملف",
+          tagActionDescription: "إرسال وسم وعرض التعليمات",
           noLocalizedTitleMessage: "لا يوجد عنوان محلي",
         },
       },
@@ -146,6 +150,22 @@ describe("Stremio Utilities", () => {
   });
 
   describe("createHowToTagStream - Tag Assistant Feature", () => {
+    it.each(["en", "he", "ru", "ar", "fr"])("explains the tag action in %s while preserving the account URL and command", (language) => {
+      const actualConfig = jest.requireActual<typeof import("../config/configuration")>("../config/configuration").default();
+      const locale = language === "fr" ? "en" : language as "en" | "he" | "ru" | "ar";
+      const copy = actualConfig.language.languages[locale];
+      const media: MediaDetails = {
+        id: 0, imdbId: "tt0120855", title: "Tarzan", localizedTitle: "Tarzan",
+        type: "movie", overview: null, year: 1999, seasons: null, episodes: null, episodeInfo: null,
+      };
+      expect(createHowToTagStream(language, media, "tt0120855", "account", "https://test.example.com/account/")).toEqual({
+        name: `StreamGram\n🔎 ${copy.howToTagLabel}`,
+        title: `${copy.tagActionDescription}\n/tag Tarzan 1999`,
+        url: "https://test.example.com/account/tag/tt0120855",
+        behaviorHints: { notWebReady: false },
+      });
+    });
+
     describe("Movie Instructions", () => {
       it("should create English instruction for movie with year", () => {
         const mediaDetails: MediaDetails = {
@@ -168,8 +188,8 @@ describe("Stremio Utilities", () => {
           "test-token-123",
         );
 
-        expect(result.name).toBe("StreamGram\n🏷️ How to Tag");
-        expect(result.title).toBe("/tag tt0120855");
+        expect(result.name).toBe("StreamGram\n🔎 Help find this file");
+        expect(result.title.split("\n").slice(1).join("\n")).toBe("/tag tt0120855");
         expect(result.url).toBe(
           "https://test.example.com/tag/tt0120855",
         );
@@ -197,8 +217,8 @@ describe("Stremio Utilities", () => {
           "test-token-123",
         );
 
-        expect(result.name).toBe("StreamGram\n🏷️ How to Tag");
-        expect(result.title).toBe("/tag tt0120855");
+        expect(result.name).toBe("StreamGram\n🔎 Help find this file");
+        expect(result.title.split("\n").slice(1).join("\n")).toBe("/tag tt0120855");
         expect(result.url).toBe(
           "https://test.example.com/tag/tt0120855",
         );
@@ -226,8 +246,8 @@ describe("Stremio Utilities", () => {
           "test-token-123",
         );
 
-        expect(result.name).toBe("StreamGram\n🏷️ איך לתייג");
-        expect(result.title).toBe("/tag tt0120855");
+        expect(result.name).toBe("StreamGram\n🔎 עזרה במציאת הקובץ");
+        expect(result.title.split("\n").slice(1).join("\n")).toBe("/tag tt0120855");
         expect(result.url).toBe(
           "https://test.example.com/tag/tt0120855",
         );
@@ -255,8 +275,8 @@ describe("Stremio Utilities", () => {
           "test-token-123",
         );
 
-        expect(result.name).toBe("StreamGram\n🏷️ איך לתייג");
-        expect(result.title).toBe("/tag tt0120855");
+        expect(result.name).toBe("StreamGram\n🔎 עזרה במציאת הקובץ");
+        expect(result.title.split("\n").slice(1).join("\n")).toBe("/tag tt0120855");
         expect(result.url).toBe(
           "https://test.example.com/tag/tt0120855",
         );
@@ -283,8 +303,8 @@ describe("Stremio Utilities", () => {
           "test-token-123",
         );
 
-        expect(result.title).toBe("/tag Tarzan 1999");
-        expect(result.title).not.toContain("\n");
+        expect(result.title.split("\n").slice(1).join("\n")).toBe("/tag Tarzan 1999");
+        expect(result.title.split("\n").slice(1).join("\n")).not.toContain("\n");
       });
     });
 
@@ -310,8 +330,8 @@ describe("Stremio Utilities", () => {
           "test-token-123",
         );
 
-        expect(result.name).toBe("StreamGram\n🏷️ How to Tag");
-        expect(result.title).toBe("/tag tt0108778:1:1");
+        expect(result.name).toBe("StreamGram\n🔎 Help find this file");
+        expect(result.title.split("\n").slice(1).join("\n")).toBe("/tag tt0108778:1:1");
         expect(result.url).toBe(
           "https://test.example.com/tag/tt0108778%3A1%3A1",
         );
@@ -339,8 +359,8 @@ describe("Stremio Utilities", () => {
           "test-token-123",
         );
 
-        expect(result.name).toBe("StreamGram\n🏷️ איך לתייג");
-        expect(result.title).toBe("/tag tt0108778:1:1");
+        expect(result.name).toBe("StreamGram\n🔎 עזרה במציאת הקובץ");
+        expect(result.title.split("\n").slice(1).join("\n")).toBe("/tag tt0108778:1:1");
         expect(result.url).toBe(
           "https://test.example.com/tag/tt0108778%3A1%3A1",
         );
@@ -367,8 +387,8 @@ describe("Stremio Utilities", () => {
           "test-token-123",
         );
 
-        expect(result.name).toBe("StreamGram\n🏷️ Как отметить");
-        expect(result.title).toBe("/tag Friends s02e15\n/tag Друзья с02э15");
+        expect(result.name).toBe("StreamGram\n🔎 Помочь найти файл");
+        expect(result.title.split("\n").slice(1).join("\n")).toBe("/tag Friends s02e15\n/tag Друзья с02э15");
       });
 
       it("should create Arabic instruction with Arabic format", () => {
@@ -392,8 +412,8 @@ describe("Stremio Utilities", () => {
           "test-token-123",
         );
 
-        expect(result.name).toBe("StreamGram\n🏷️ كيفية الوسم");
-        expect(result.title).toBe("/tag Friends s03e05\n/tag الأصدقاء م03ح05");
+        expect(result.name).toBe("StreamGram\n🔎 المساعدة في العثور على الملف");
+        expect(result.title.split("\n").slice(1).join("\n")).toBe("/tag Friends s03e05\n/tag الأصدقاء م03ح05");
       });
 
       it("should handle double-digit season and episode numbers", () => {
@@ -417,7 +437,7 @@ describe("Stremio Utilities", () => {
           "test-token-123",
         );
 
-        expect(result.title).toBe("/tag tt0108778:10:18");
+        expect(result.title.split("\n").slice(1).join("\n")).toBe("/tag tt0108778:10:18");
       });
 
       it("should show 'no localized title' for Hebrew episode without localization", () => {
@@ -441,8 +461,8 @@ describe("Stremio Utilities", () => {
           "test-token-123",
         );
 
-        expect(result.name).toBe("StreamGram\n🏷️ איך לתייג");
-        expect(result.title).toBe("/tag Friends s01e01\nאין כותרת בעברית");
+        expect(result.name).toBe("StreamGram\n🔎 עזרה במציאת הקובץ");
+        expect(result.title.split("\n").slice(1).join("\n")).toBe("/tag Friends s01e01\nאין כותרת בעברית");
       });
     });
 
@@ -468,8 +488,8 @@ describe("Stremio Utilities", () => {
           "test-token-123",
         );
 
-        expect(result.name).toBe("StreamGram\n🏷️ How to Tag");
-        expect(result.title).toBe("/tag Tarzan 1999");
+        expect(result.name).toBe("StreamGram\n🔎 Help find this file");
+        expect(result.title.split("\n").slice(1).join("\n")).toBe("/tag Tarzan 1999");
       });
 
       it("should not show 'no localized title' message for English users", () => {
@@ -493,7 +513,7 @@ describe("Stremio Utilities", () => {
           "test-token-123",
         );
 
-        expect(result.title).toBe("/tag tt0120855");
+        expect(result.title.split("\n").slice(1).join("\n")).toBe("/tag tt0120855");
         expect(result.title).not.toContain("No localized title");
       });
 
@@ -519,12 +539,12 @@ describe("Stremio Utilities", () => {
           "test-token-123",
         );
 
-        expect(result.title).toBe("/tag tt1234567");
+        expect(result.title.split("\n").slice(1).join("\n")).toBe("/tag tt1234567");
       });
     });
 
     describe("Stream Properties", () => {
-      it("should always include 🏷️ emoji in name", () => {
+      it("should always include 🔎 emoji in name", () => {
         const mediaDetails: MediaDetails = {
           id: 0,
           imdbId: "tt0120855",
@@ -546,7 +566,7 @@ describe("Stremio Utilities", () => {
             "tt0120855",
             "test-token-123",
           );
-          expect(result.name).toMatch(/^StreamGram\n🏷️ /);
+          expect(result.name).toMatch(/^StreamGram\n🔎 /);
         });
       });
 
