@@ -5,6 +5,7 @@ import { BinaryReader } from "teleproto/extensions/BinaryReader";
 import bigInt from "big-integer";
 import { TelegramClientManager } from "./telegram-client.manager";
 import { TelegramNestService } from "./telegram.service";
+import { PlaybackPeer } from "./types";
 import { CacheService } from "../cache/cache.service";
 import { createCache } from "cache-manager";
 
@@ -55,7 +56,7 @@ describe("Telegram RPC decoding recovery", () => {
     await manager.onApplicationShutdown();
     jest.restoreAllMocks();
   });
-  const prepare = () => service.preparePlayback("account", "session", "123", 7, new AbortController().signal);
+  const prepare = () => service.preparePlayback("account", "session", { kind: "channel", id: "123", accessHash: "456" }, 7, new AbortController().signal);
 
   it("replaces a client after a direct RPC decode failure without onError, retaining the peer", async () => {
     const old = makeClient(true), replacement = makeClient(false);
@@ -104,47 +105,42 @@ describe("Telegram RPC decoding recovery", () => {
   it("stops preparation before acquiring a client when the player disconnects", async () => {
     const controller = new AbortController();
     controller.abort();
-    await expect(service.preparePlayback("account", "session", "123", 7, controller.signal)).rejects.toThrow("cancelled");
+    await expect(service.preparePlayback("account", "session", { kind: "channel", id: "123", accessHash: "456" }, 7, controller.signal)).rejects.toThrow("cancelled");
     expect(initialize).not.toHaveBeenCalled();
   });
 
-  it("plays cached sources on new clients without re-resolving their channel, including after decoding recovery", async () => {
-    await cache.setSearchResults("account", "episode", [{ chatId: "123", messageId: 7 }, { chatId: "321", messageId: 7 }], {
-      session: "session", peers: [
-        { chatId: "123", kind: "channel", id: "123", accessHash: "456" },
-        { chatId: "321", kind: "channel", id: "321", accessHash: "654" },
-      ],
-    });
-    const old = makeClient(true), replacement = makeClient(false);
-    for (const client of [old, replacement]) {
-      (client.getInputEntity as jest.Mock).mockRejectedValue(new Error("Could not find the input entity"));
+  it.each<PlaybackPeer>([
+    { kind: "chat", id: "123" },
+    { kind: "user", id: "123", accessHash: "9223372036854775807" },
+    { kind: "channel", id: "123", accessHash: "-9223372036854775808" },
+  ])("constructs the correct input peer for $kind", async (reference) => {
+    const client = makeClient(false);
+    (client.getMessages as jest.Mock).mockResolvedValue([message]);
+    initialize.mockResolvedValue(client);
+    await service.preparePlayback("account", "session", reference, 7, new AbortController().signal);
+    const input = (client.getMessages as jest.Mock).mock.calls[0][0];
+    if (reference.kind === "chat") {
+      expect(input).toBeInstanceOf(Api.InputPeerChat);
+      expect(input.chatId.toString()).toBe(reference.id);
+    } else {
+      expect(input).toBeInstanceOf(reference.kind === "user" ? Api.InputPeerUser : Api.InputPeerChannel);
+      expect(input.accessHash.toString()).toBe(reference.accessHash);
+      expect((input.userId ?? input.channelId).toString()).toBe(reference.id);
     }
-    initialize.mockResolvedValueOnce(old).mockResolvedValueOnce(replacement);
-    expect((await prepare()).client).toBe(replacement);
-    expect((await prepare()).client).toBe(replacement);
-    await cache.setMessageDetails("321", 7, {});
-    await service.preparePlayback("account", "session", "321", 7, new AbortController().signal);
-    expect(replacement.getMessages).toHaveBeenLastCalledWith(
-      expect.objectContaining({ channelId: bigInt(321), accessHash: bigInt(654) }), { ids: 7 },
-    );
-    expect(replacement.getInputEntity).not.toHaveBeenCalled();
-    expect(await cache.getSearchResults("account", "episode")).not.toBeNull();
+    expect(client.getInputEntity).not.toHaveBeenCalled();
   });
 
-  it("evicts the failed source list so returning to it performs a fresh lookup", async () => {
-    await cache.setSearchResults("account", "episode", [{ chatId: "123", messageId: 7 }]);
-    await cache.setSearchResults("other", "episode", [{ chatId: "123", messageId: 7 }]);
+  it("plays a saved URL with empty caches and a new client", async () => {
+    await cache.clearAll();
     const client = makeClient(false);
-    (client.getInputEntity as jest.Mock).mockRejectedValue(new Error("Could not find the input entity for PeerUser"));
+    (client.getInputEntity as jest.Mock).mockRejectedValue(new Error("Empty entity cache"));
     initialize.mockResolvedValue(client);
-    await expect(prepare()).rejects.toThrow("refresh the source list");
-    expect(await cache.getSearchResults("account", "episode")).toBeNull();
-    expect(await cache.getSearchResults("other", "episode")).not.toBeNull();
-    expect(client.destroy).not.toHaveBeenCalled();
-    (client.getInputEntity as jest.Mock).mockResolvedValue(peer);
-    await cache.setSearchResults("account", "episode", [{ chatId: "123", messageId: 7 }],
-      await service.getPlaybackContextForUser("account", "session", [{ chatId: "123", messageId: 7, fileName: null, fileSize: 1, mimeType: null }]));
-    (client.getInputEntity as jest.Mock).mockRejectedValue(new Error("Could not find the input entity"));
-    expect((await prepare()).message).toBe(message);
+    jest.spyOn(service, "getFileSize").mockReturnValue(1);
+    await service.preparePlayback("account", "session",
+      { kind: "channel", id: "321", accessHash: "-9223372036854775808" }, 7, new AbortController().signal);
+    expect(client.getMessages).toHaveBeenCalledWith(
+      expect.objectContaining({ channelId: bigInt(321), accessHash: bigInt("-9223372036854775808") }), { ids: 7 },
+    );
+    expect(client.getInputEntity).not.toHaveBeenCalled();
   });
 });

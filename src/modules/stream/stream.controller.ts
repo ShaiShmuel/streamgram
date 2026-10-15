@@ -31,13 +31,14 @@ import {
   createHowToTagStream,
 } from "../../utils/stremio";
 import { SearchResponsePayload } from "./types";
-import { MediaSearchResult } from "../telegram/types";
+import { MediaSearchResult, PlaybackPeer } from "../telegram/types";
 import { logger } from "../../logger";
 import {
   MovieSearchDto,
   SeriesSearchDto,
   EpisodeParamsDto,
   WatchParamsDto,
+  HashedWatchParamsDto,
 } from "../../common/dto/search-params.dto";
 import {
   ManifestResponseDto,
@@ -762,7 +763,41 @@ export class StreamController {
     }
   }
 
-  @Get("watch/:chatId/:messageId")
+  @Get("watch/channel/:chatId/:accessHash/:messageId")
+  @ApiOperation({ summary: "Stream a Telegram channel or supergroup video" })
+  @ApiParam({ name: "chatId", description: "Positive channel ID" })
+  @ApiParam({ name: "accessHash", description: "Signed 64-bit peer access hash", type: String })
+  @ApiParam({ name: "messageId" })
+  @Header("Accept-Ranges", "bytes")
+  @Header("Access-Control-Allow-Origin", "*")
+  @Header("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
+  @Header("Access-Control-Allow-Headers", "Range, Content-Type")
+  async watchChannel(
+    @Param() params: HashedWatchParamsDto,
+    @Req() req: Request,
+    @Res() res: Response,
+  ): Promise<void> {
+    return this.streamVideo({ kind: "channel", id: params.chatId, accessHash: params.accessHash }, params.messageId, req, res);
+  }
+
+  @Get("watch/user/:chatId/:accessHash/:messageId")
+  @ApiOperation({ summary: "Stream a Telegram user video" })
+  @ApiParam({ name: "chatId", description: "Positive user ID" })
+  @ApiParam({ name: "accessHash", description: "Signed 64-bit peer access hash", type: String })
+  @ApiParam({ name: "messageId" })
+  @Header("Accept-Ranges", "bytes")
+  @Header("Access-Control-Allow-Origin", "*")
+  @Header("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
+  @Header("Access-Control-Allow-Headers", "Range, Content-Type")
+  async watchUser(
+    @Param() params: HashedWatchParamsDto,
+    @Req() req: Request,
+    @Res() res: Response,
+  ): Promise<void> {
+    return this.streamVideo({ kind: "user", id: params.chatId, accessHash: params.accessHash }, params.messageId, req, res);
+  }
+
+  @Get("watch/chat/:chatId/:messageId")
   @ApiOperation({ summary: "Stream video file from Telegram" })
   @ApiParam({ name: "chatId", required: true })
   @ApiParam({ name: "messageId", required: true })
@@ -775,7 +810,11 @@ export class StreamController {
     @Req() req: Request,
     @Res() res: Response,
   ): Promise<void> {
-    const { chatId, messageId } = params;
+    return this.streamVideo({ kind: "chat", id: params.chatId }, params.messageId, req, res);
+  }
+
+  private async streamVideo(peer: PlaybackPeer, messageId: string, req: Request, res: Response): Promise<void> {
+    const chatId = peer.id;
     const user = req.user;
 
     const controller = this.telegramService.createStreamSession();
@@ -796,7 +835,7 @@ export class StreamController {
       const { client, message } = await this.telegramService.preparePlayback(
         user.token,
         user.session_string,
-        chatId,
+        peer,
         Number(messageId),
         controller.signal,
       );

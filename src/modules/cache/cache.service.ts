@@ -2,7 +2,6 @@ import { Injectable, Inject } from "@nestjs/common";
 import { CACHE_MANAGER } from "@nestjs/cache-manager";
 import { Cache } from "cache-manager";
 import { ConfigService } from "@nestjs/config";
-import { createHash } from "crypto";
 
 type CacheValue =
   | Record<string, unknown>
@@ -12,17 +11,6 @@ type CacheValue =
   | boolean
   | null;
 
-export type PlaybackPeer = { chatId: string; id: string } & (
-  { kind: "chat" } | { kind: "channel" | "user"; accessHash: string }
-);
-export interface PlaybackContext { session: string; peers: PlaybackPeer[] }
-interface StreamCacheEntry {
-  streams: CacheValue;
-  peers: PlaybackPeer[];
-  sessionScope: string;
-  generation: number;
-}
-
 @Injectable()
 export class CacheService {
   private readonly defaultTtl: number;
@@ -30,9 +18,8 @@ export class CacheService {
   private readonly messageTtl: number;
   private readonly folderTtl: number;
   private readonly channelVideosTtl: number;
-  // Only keys/expiry live outside the cache; streams and peers share one entry.
+  // Bound result entries without retaining a separate copy of their payload.
   private readonly resultKeys = new Map<string, number>();
-  private resultGeneration = 0;
   private resultWrites: Promise<unknown> = Promise.resolve();
 
   constructor(
@@ -49,35 +36,23 @@ export class CacheService {
     );
   }
 
-  getPlaybackGeneration(): number { return this.resultGeneration; }
-
-  private sessionScope(session: string): string {
-    return createHash("sha256").update(session).digest("hex");
-  }
-
-  // Serialize cache mutations so a late playback failure cannot delete fresh results.
+  // Coordinate result writes, eviction, deletion and clearing.
   private writeResults<T>(operation: () => Promise<T>): Promise<T> {
     const pending = this.resultWrites.catch(() => undefined).then(operation);
     this.resultWrites = pending;
     return pending;
   }
 
-  private liveResultKeys(account?: string): string[] {
+  private pruneResultKeys(): void {
     for (const [key, expiresAt] of this.resultKeys) {
       if (expiresAt <= Date.now()) this.resultKeys.delete(key);
     }
-    return [...this.resultKeys.keys()].filter(key => !account || key.startsWith(`u:${account}:`));
   }
 
-  private async setResults(key: string, streams: CacheValue, ttlMs: number, context?: PlaybackContext): Promise<void> {
+  private async setResults(key: string, streams: CacheValue, ttlMs: number): Promise<void> {
     await this.writeResults(async () => {
-      const entry: StreamCacheEntry = {
-        streams, peers: context?.peers ?? [],
-        sessionScope: this.sessionScope(context?.session ?? ""),
-        generation: ++this.resultGeneration,
-      };
-      await this.cacheManager.set(key, entry, ttlMs);
-      this.liveResultKeys();
+      await this.cacheManager.set(key, streams, ttlMs);
+      this.pruneResultKeys();
       this.resultKeys.delete(key);
       this.resultKeys.set(key, Date.now() + ttlMs);
       if (this.resultKeys.size > 1000) {
@@ -91,32 +66,7 @@ export class CacheService {
   }
 
   private async getResults<T>(key: string): Promise<T | null> {
-    const entry = await this.cacheManager.get<StreamCacheEntry>(key);
-    return entry ? entry.streams as T : null;
-  }
-
-  async getPlaybackPeer(account: string, session: string, chatId: string): Promise<PlaybackPeer | undefined> {
-    const scope = this.sessionScope(session);
-    for (const key of this.liveResultKeys(account).reverse()) {
-      const entry = await this.cacheManager.get<StreamCacheEntry>(key);
-      const peer = entry?.sessionScope === scope ? entry.peers.find(item => item.chatId === chatId) : undefined;
-      if (peer) return peer;
-    }
-    return undefined;
-  }
-
-  async invalidatePlaybackResults(account: string, chatId: string, messageId: number, before: number): Promise<void> {
-    await this.writeResults(async () => {
-      for (const key of this.liveResultKeys(account)) {
-        const entry = await this.cacheManager.get<StreamCacheEntry>(key);
-        if (entry && entry.generation <= before && Array.isArray(entry.streams) &&
-          entry.streams.some(source => source && typeof source === "object" &&
-            "chatId" in source && source.chatId === chatId && "messageId" in source && source.messageId === messageId)) {
-          await this.cacheManager.del(key);
-          this.resultKeys.delete(key);
-        }
-      }
-    });
+    return (await this.cacheManager.get<T>(key)) ?? null;
   }
 
   private searchKey(userToken: string, key: string): string {
@@ -176,14 +126,12 @@ export class CacheService {
     userToken: string,
     cacheKey: string,
     value: CacheValue,
-    context?: PlaybackContext,
   ): Promise<boolean> {
     try {
       await this.setResults(
         this.searchKey(userToken, cacheKey),
         value,
         this.searchTtl * 1000,
-        context,
       );
       return true;
     } catch {
@@ -286,14 +234,12 @@ export class CacheService {
     channelId: string,
     offsetId: number = 0,
     value: CacheValue,
-    context?: PlaybackContext,
   ): Promise<boolean> {
     try {
       await this.setResults(
         this.channelVideosKey(userToken, channelId, offsetId),
         value,
         this.channelVideosTtl * 1000,
-        context,
       );
       return true;
     } catch {

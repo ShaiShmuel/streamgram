@@ -1,6 +1,16 @@
+import { PlaybackPeer } from "../../modules/telegram/types";
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
 
 export class MediaSearchResultDto {
+  @ApiProperty({
+    description: "Complete Telegram peer used to build the playback URL",
+    oneOf: [
+      { type: "object", required: ["kind", "id"], properties: { kind: { type: "string", enum: ["chat"] }, id: { type: "string" } } },
+      { type: "object", required: ["kind", "id", "accessHash"], properties: { kind: { type: "string", enum: ["channel", "user"] }, id: { type: "string" }, accessHash: { type: "string" } } },
+    ],
+  })
+  peer: PlaybackPeer;
+
   @ApiProperty()
   chatId: string;
 

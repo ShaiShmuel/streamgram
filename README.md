@@ -290,3 +290,30 @@ See [authentication and access documentation](docs/AUTHENTICATION.md) for detail
 
 > [!WARNING]
 > StreamGram is a bridge, not a media library. It does not host, upload, or distribute any content. You choose the Telegram sources your account can access and are solely responsible for using this software in compliance with applicable law, copyright permissions, Telegram's Terms of Service, and the terms of your client or provider.
+
+### Playback URLs and recovery
+
+New source lists return self-contained Telegram playback URLs:
+
+```text
+/:userToken/watch/channel/:chatId/:accessHash/:messageId
+/:userToken/watch/user/:chatId/:accessHash/:messageId
+/:userToken/watch/chat/:chatId/:messageId
+```
+
+`chatId` is the positive Telegram peer ID, not a Bot API `-100...` ID.
+Channels (including supergroups) and users require their full, nonzero signed
+64-bit access hash as a decimal string. Basic groups use the `chat` route without
+a hash. `messageId` is a positive signed 32-bit integer. Invalid parameters return
+400; old playback paths are no longer supported. Refresh existing Stremio sources
+after upgrading.
+
+A saved URL works without the server's search or entity cache after a restart,
+provided the same Telegram account/login still has access to the message.
+A new login, deleted message or revoked access can require refreshed sources.
+The server fetches the message for current document/file-reference information;
+the URL contains the peer's hash, not the document's hash. Treat playback URLs as
+private account links, like the token-prefixed addon URL.
+
+Decode-failure detection, managed client replacement and one bounded preparation
+retry remain enabled. See [playback recovery](docs/PLAYBACK_RECOVERY_PLAN.md).

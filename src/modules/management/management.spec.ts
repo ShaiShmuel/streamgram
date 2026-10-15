@@ -1164,6 +1164,34 @@ describe("HTTP management and personal access", () => {
       auth.verifyCode("+11111", "12345", owner, undefined, start.attemptId),
     ).rejects.toThrow("expired");
   });
+  it("validates self-contained playback paths before Telegram access", async () => {
+    const account = config.completeAuthentication({ kind: "admin", id: "a" }, "+11111", "1", "s");
+    const prepare = jest.spyOn(telegram, "preparePlayback");
+    for (const [path, peer] of [
+      ["channel/123/-9223372036854775808/1", { kind: "channel", id: "123", accessHash: "-9223372036854775808" }],
+      ["user/123/9223372036854775807/2147483647", { kind: "user", id: "123", accessHash: "9223372036854775807" }],
+      ["chat/123/1", { kind: "chat", id: "123" }],
+    ] as const) {
+      const response = await fetch(`${base}/${account.token}/watch/${path}`, { method: "HEAD" });
+      expect(response.status).toBe(200);
+      expect(prepare).toHaveBeenLastCalledWith(account.token, "s", peer, Number(path.split("/").pop()), expect.any(AbortSignal));
+    }
+    prepare.mockClear();
+    for (const path of [
+      "channel/123/0/1", "channel/123/-0/1", "channel/123/9223372036854775808/1",
+      "user/123/-9223372036854775809/1", "channel/123/1e3/1", "channel/123/1.5/1",
+      "channel/123/abc/1", "channel/0/456/1", "channel/-123/456/1",
+      "chat/9223372036854775808/1", "chat/123/0", "chat/123/-1", "chat/123/2147483648",
+      "chat/123/1.5", "channel/123/456/01",
+    ]) {
+      expect((await fetch(`${base}/${account.token}/watch/${path}`)).status).toBe(400);
+    }
+    for (const path of ["123/1", "channel/123/1", "unknown/123/456/1", "chat/123/456/1"]) {
+      expect((await fetch(`${base}/${account.token}/watch/${path}`)).status).toBe(404);
+    }
+    expect(prepare).not.toHaveBeenCalled();
+  });
+
   it("preserves cross-origin byte-range playback and token-prefixed episode routes", async () => {
     const account = config.completeAuthentication(
       { kind: "admin", id: "a" },
@@ -1171,7 +1199,7 @@ describe("HTTP management and personal access", () => {
       "1",
       "s",
     );
-    const playback = await fetch(`${base}/${account.token}/watch/-100123/1`, {
+    const playback = await fetch(`${base}/${account.token}/watch/channel/123/456/1`, {
       headers: { range: "bytes=2-5", origin: "https://web.stremio.com" },
     });
     expect(playback.status).toBe(206);

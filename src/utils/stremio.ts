@@ -142,12 +142,16 @@ export function formatStreamForStremio(
   baseUrlOverride?: string,
   userLanguage: string = config.language.preferredLanguage,
 ): StremioStream | null {
-  if (!result.chatId || !result.messageId) {
+  if (!result.peer || !result.messageId) {
     return null;
   }
 
   const baseUrl = (baseUrlOverride || getStreamBaseUrl()).replace(/\/$/, "");
-  const streamUrl = `${baseUrl}/watch/${result.chatId}/${result.messageId}`;
+  const { peer } = result;
+  const peerPath = peer.kind === "chat"
+    ? `chat/${peer.id}`
+    : `${peer.kind}/${peer.id}/${peer.accessHash}`;
+  const streamUrl = `${baseUrl}/watch/${peerPath}/${result.messageId}`;
 
   // Check if this is a tagged result (has tag emoji)
   const isTagged = result.fileName?.startsWith("🏷️");

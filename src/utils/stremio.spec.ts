@@ -69,6 +69,17 @@ jest.mock("../config/configuration", () => ({
 }));
 
 describe("Stremio Utilities", () => {
+  it.each([
+    [{ kind: "channel" as const, id: "123", accessHash: "-9223372036854775808" }, "channel/123/-9223372036854775808"],
+    [{ kind: "user" as const, id: "123", accessHash: "9223372036854775807" }, "user/123/9223372036854775807"],
+    [{ kind: "chat" as const, id: "123" }, "chat/123"],
+  ])("formats a complete %j peer without query parameters", (peer, path) => {
+    const result = formatStreamForStremio("account", {
+      peer, chatId: "123", messageId: 7, fileName: "video.mp4", fileSize: 1, mimeType: "video/mp4",
+    }, undefined, "https://test.example.com/account/");
+    expect(result?.url).toBe(`https://test.example.com/account/watch/${path}/7`);
+  });
+
   describe("stream label language", () => {
     it.each([
       ["he", "תרגום מובנה", "מדובב"],
@@ -78,7 +89,7 @@ describe("Stremio Utilities", () => {
       ["unknown", "Built-in Subtitles", "Dubbed"],
     ])("uses resolved account language %s", (language, subtitles, dubbed) => {
       const stream = formatStreamForStremio("instance", {
-        chatId: "123",
+        peer: { kind: "channel" as const, id: "123", accessHash: "456" }, chatId: "123",
         messageId: 456,
         fileName: "Movie.1080p.mkv",
         caption: "תרגום מובנה מדובב",
@@ -91,7 +102,7 @@ describe("Stremio Utilities", () => {
 
   describe("source channel display", () => {
     const video: MediaSearchResult = {
-      chatId: "123",
+      peer: { kind: "channel" as const, id: "123", accessHash: "456" }, chatId: "123",
       messageId: 456,
       fileName: "Movie.1080p.mkv",
       fileSize: 1.5 * 1024 ** 3,
@@ -106,7 +117,7 @@ describe("Stremio Utilities", () => {
     ])("shows size %s beside the channel", (fileSize, line) => {
       const result = formatStreamForStremio("instance", { ...video, fileSize });
       expect(result?.title).toBe(`Movie.1080p.mkv\n${line}`);
-      expect(result?.url).toBe("https://test.example.com/watch/123/456");
+      expect(result?.url).toBe("https://test.example.com/watch/channel/123/456/456");
       expect(result?.name).toBe("StreamGram\n1080p");
     });
 

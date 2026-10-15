@@ -11,7 +11,7 @@ describe("Stremio result language", () => {
     ["series", "tg_folder_1:1:1"],
   ])("uses the resolved account language for %s %s", async (type, id) => {
     const videos = [{
-      chatId: "123", messageId: 456,
+      peer: { kind: "channel" as const, id: "123", accessHash: "456" }, chatId: "123", messageId: 456,
       fileName: "Movie.1080p.mkv", caption: "תרגום מובנה מדובב",
     }];
     const handler = {
@@ -32,7 +32,7 @@ describe("Stremio result language", () => {
       const req = { user: { token: "test", language } } as Request;
       const result = await controller.getStream(req, type, id);
       expect(result.streams[0].name).toBe(`StreamGram\n1080p\n${subtitles}\n${dubbed}`);
-      expect(result.streams[0].url).toBe("https://test.example.com/test/watch/123/456");
+      expect(result.streams[0].url).toBe("https://test.example.com/test/watch/channel/123/456/456");
     }
   });
 });

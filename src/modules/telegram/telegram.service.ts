@@ -9,10 +9,11 @@ import { Logger, LogLevel } from "teleproto/extensions/Logger";
 import { CustomMessage as Message } from "teleproto/tl/custom/message";
 import { EntityLike } from "teleproto/define";
 import bigInt from "big-integer";
+import { getInputPeer } from "teleproto/Utils";
 import { computeCheck } from "teleproto/Password";
-import { CacheService, PlaybackContext, PlaybackPeer } from "../cache/cache.service";
+import { CacheService } from "../cache/cache.service";
 import { MediaDetails } from "../tmdb/types";
-import { MediaSearchResult, EpisodeInfo } from "./types";
+import { MediaSearchResult, EpisodeInfo, PlaybackPeer } from "./types";
 import { logger } from "../../logger";
 import { TelegramClientManager } from "./telegram-client.manager";
 import { InstanceConfigService } from "../user/instance-config.service";
@@ -470,13 +471,6 @@ export class TelegramNestService {
       await client.disconnect();
       await client.destroy();
     }
-  }
-
-  private normalizeChatId(chatId: string | number | bigint): string {
-    if (typeof chatId === "bigint") {
-      return chatId.toString();
-    }
-    return String(chatId);
   }
 
   private isVideoMessage(message: Message): boolean {
@@ -949,8 +943,8 @@ export class TelegramNestService {
         score: this.evaluateResultScore(result, media),
       };
 
-      // First level: deduplicate by chatId:messageId
-      const messageKey = `${result.chatId}:${result.messageId}`;
+      // First level: deduplicate by peer kind, peer ID and message ID
+      const messageKey = `${result.peer.kind}:${result.peer.id}:${result.messageId}`;
       const existingMessage = deduped.get(messageKey);
 
       if (
@@ -970,7 +964,7 @@ export class TelegramNestService {
         // Keep the one with higher score
         if ((updated.score ?? 0) > (existingFile.score ?? 0)) {
           // Remove the old entry from deduped map
-          const oldMessageKey = `${existingFile.chatId}:${existingFile.messageId}`;
+          const oldMessageKey = `${existingFile.peer.kind}:${existingFile.peer.id}:${existingFile.messageId}`;
           deduped.delete(oldMessageKey);
           // Update with new entry
           deduped.set(messageKey, updated);
@@ -1212,21 +1206,6 @@ export class TelegramNestService {
                 `${fileName ?? ""} ${caption ?? ""}`,
               );
 
-              // Extract chat ID from the original message's peerId
-              let chatId: bigint | bigInt.BigInteger | number | string = 0n;
-              if (originalMessage.peerId) {
-                chatId = this.extractChatIdFromPeer(originalMessage.peerId);
-              } else if (originalMessage.chatId) {
-                chatId = originalMessage.chatId;
-              }
-
-              const normalizedChatId =
-                typeof chatId === "bigint" ||
-                typeof chatId === "number" ||
-                typeof chatId === "string"
-                  ? this.normalizeChatId(chatId)
-                  : this.normalizeChatId(chatId.toString());
-
               // For tagged results, show the actual file name or caption with tag emoji
               // Don't show catalog ID (e.g., tt5574490:3:7) as it's not user-friendly
               let displayName: string;
@@ -1238,8 +1217,21 @@ export class TelegramNestService {
                 displayName = "🏷️ Tagged Video";
               }
 
+              if (!originalMessage.peerId) continue;
+              let originalEntity: EntityLike;
+              try {
+                originalEntity = this.peerKey(originalMessage.peerId) === peerKey
+                  ? entity
+                  : await client.getInputEntity(originalMessage.peerId);
+              } catch (error) {
+                if (error instanceof TypeNotFoundError) throw error;
+                continue;
+              }
+              const peer = this.playbackPeer(originalEntity);
+              if (!peer) continue;
               results.push({
-                chatId: normalizedChatId,
+                peer,
+                chatId: peer.id,
                 channelTitle: originalMessage.peerId
                   ? channelTitles.get(this.peerKey(originalMessage.peerId))
                   : undefined,
@@ -1259,7 +1251,7 @@ export class TelegramNestService {
                 {
                   tagName,
                   originalMessageId: originalMessage.id,
-                  chatId: normalizedChatId,
+                  chatId: peer.id,
                 },
                 "Found tagged video via /tag command",
               );
@@ -1280,23 +1272,11 @@ export class TelegramNestService {
             `${fileName ?? ""} ${caption ?? ""}`,
           );
 
-          // Extract chat ID from the raw message's peerId
-          let chatId: bigint | bigInt.BigInteger | number | string = 0n;
-          if (rawMessage.peerId) {
-            chatId = this.extractChatIdFromPeer(rawMessage.peerId);
-          } else if (rawMessage.chatId) {
-            chatId = rawMessage.chatId;
-          }
-
-          const normalizedChatId =
-            typeof chatId === "bigint" ||
-            typeof chatId === "number" ||
-            typeof chatId === "string"
-              ? this.normalizeChatId(chatId)
-              : this.normalizeChatId(chatId.toString());
-
+          const peer = this.playbackPeer(entity);
+          if (!peer) continue;
           results.push({
-            chatId: normalizedChatId,
+            peer,
+            chatId: peer.id,
             channelTitle: channelTitles.get(peerKey),
             messageId: rawMessage.id,
             fileName,
@@ -1326,21 +1306,6 @@ export class TelegramNestService {
       return `user:${peer.userId}`;
     }
     return `unknown:${JSON.stringify(peer)}`;
-  }
-
-  private extractChatIdFromPeer(
-    peer: Api.TypePeer,
-  ): bigint | bigInt.BigInteger {
-    if (peer instanceof Api.PeerChannel) {
-      return peer.channelId;
-    }
-    if (peer instanceof Api.PeerChat) {
-      return peer.chatId;
-    }
-    if (peer instanceof Api.PeerUser) {
-      return peer.userId;
-    }
-    return 0n;
   }
 
   private limitResults(
@@ -1660,6 +1625,8 @@ export class TelegramNestService {
     const searchPhase = async (phaseQueries: Set<string>, episodeOnly: boolean) => {
       await runWorkers([...channels.values()], async (entity) => {
         if (failedChannels.has(entity)) return;
+        const peer = this.playbackPeer(entity);
+        if (!peer) return;
         const channelTitle = entity.title;
         for (const query of phaseQueries) {
           if (!client.connected || results.length >= target) return;
@@ -1678,7 +1645,8 @@ export class TelegramNestService {
                 text, channelTitle, episodeInfo, user.language, episodeOnly,
               )) continue;
               results.push({
-                chatId: this.normalizeChatId(entity.id.toString()),
+                peer,
+                chatId: peer.id,
                 channelTitle,
                 messageId: message.id,
                 fileName,
@@ -1920,9 +1888,7 @@ export class TelegramNestService {
     // Searches can swallow individual failures; never cache their incomplete
     // output if the shared client was invalidated during the search.
     this.clientManager.assertClientUsable(client);
-    const playback = await this.buildPlaybackContext(client, user.session_string, limited);
-    this.clientManager.assertClientUsable(client);
-    await this.cache.setSearchResults(user.token, cacheKey, limited, playback);
+    await this.cache.setSearchResults(user.token, cacheKey, limited);
     logger.info(
       {
         cacheKey,
@@ -1996,35 +1962,23 @@ export class TelegramNestService {
     }
   }
 
-  async getPlaybackContextForUser(
-    userToken: string, session: string, results: MediaSearchResult[],
-  ): Promise<PlaybackContext> {
-    const client = await this.getClientForUser(userToken, session);
-    const context = await this.buildPlaybackContext(client, session, results);
-    this.clientManager.assertClientUsable(client);
-    return context;
-  }
-
-  private async buildPlaybackContext(
-    client: TelegramClient, session: string, results: MediaSearchResult[],
-  ): Promise<PlaybackContext> {
-    const peers: PlaybackPeer[] = [];
-    await Promise.all([...new Set(results.map(result => result.chatId))].map(async chatId => {
-      try {
-        const entity = await client.getInputEntity(chatId);
-        if (entity instanceof Api.InputPeerChannel && !entity.accessHash.isZero()) {
-          peers.push({ chatId, kind: "channel", id: entity.channelId.toString(), accessHash: entity.accessHash.toString() });
-        } else if (entity instanceof Api.InputPeerChat) {
-          peers.push({ chatId, kind: "chat", id: entity.chatId.toString() });
-        } else if (entity instanceof Api.InputPeerUser && !entity.accessHash.isZero()) {
-          peers.push({ chatId, kind: "user", id: entity.userId.toString(), accessHash: entity.accessHash.toString() });
-        }
-      } catch (error) {
-        if (error instanceof TypeNotFoundError) throw error;
-        // Missing references can still be rediscovered after targeted invalidation.
+  /** Capture a complete peer while search still has the typed Telegram entity. */
+  private playbackPeer(entity: EntityLike): PlaybackPeer | undefined {
+    try {
+      const input = getInputPeer(entity, false);
+      if (input instanceof Api.InputPeerChat) {
+        return { kind: "chat", id: input.chatId.toString() };
       }
-    }));
-    return { session, peers };
+      if (input instanceof Api.InputPeerChannel && !input.accessHash.isZero()) {
+        return { kind: "channel", id: input.channelId.toString(), accessHash: input.accessHash.toString() };
+      }
+      if (input instanceof Api.InputPeerUser && !input.accessHash.isZero()) {
+        return { kind: "user", id: input.userId.toString(), accessHash: input.accessHash.toString() };
+      }
+    } catch {
+      // Incomplete/min entities cannot produce a self-contained playback URL.
+    }
+    return undefined;
   }
 
   private inputPeer(reference: PlaybackPeer): Api.TypeInputPeer {
@@ -2039,29 +1993,16 @@ export class TelegramNestService {
   async preparePlayback(
     userToken: string,
     sessionString: string,
-    chatId: string,
+    reference: PlaybackPeer,
     messageId: number,
     signal: AbortSignal,
   ): Promise<{ client: TelegramClient; message: Message }> {
-    let entity: EntityLike | undefined;
-    const generation = this.cache.getPlaybackGeneration();
-    const stored = await this.cache.getPlaybackPeer(userToken, sessionString, chatId);
-    if (stored) entity = this.inputPeer(stored);
+    const entity = this.inputPeer(reference);
+    const chatId = reference.id;
     for (let attempt = 0; attempt < 2; attempt++) {
       if (signal.aborted) throw new Error("Playback preparation cancelled");
       const client = await this.getClientForUser(userToken, sessionString);
       try {
-        if (!entity) {
-          try {
-            entity = await client.getInputEntity(this.normalizeChatId(chatId) as EntityLike);
-          } catch (error) {
-            if (error instanceof Error && error.message.includes("Could not find the input entity")) {
-              await this.cache.invalidatePlaybackResults(userToken, chatId, messageId, generation);
-              throw new Error("Playback peer unavailable; refresh the source list to search again");
-            }
-            throw error;
-          }
-        }
         if (signal.aborted) throw new Error("Playback preparation cancelled");
         const message = await this.getMessageWithCache(client, chatId, messageId, entity);
         return { client, message };
@@ -2078,7 +2019,7 @@ export class TelegramNestService {
     client: TelegramClient,
     chatId: string,
     messageId: number,
-    resolvedEntity?: EntityLike,
+    resolvedEntity: Api.TypeInputPeer,
   ): Promise<Message> {
     const cached = await this.cache.getMessageDetails<{
       fileSize: number;
@@ -2093,9 +2034,7 @@ export class TelegramNestService {
 
     let message: Message | undefined;
     try {
-      const entityId = this.normalizeChatId(chatId) as EntityLike;
-      const entity = resolvedEntity ?? await client.getInputEntity(entityId);
-      const result = await client.getMessages(entity as EntityLike, {
+      const result = await client.getMessages(resolvedEntity, {
         ids: messageId,
       });
       message = Array.isArray(result) ? result[0] : result;
@@ -2720,8 +2659,8 @@ export class TelegramNestService {
     limit: number = 50,
     offsetId: number = 0,
   ): Promise<import("./types").MediaSearchResult[]> {
+    const client = await this.getClientForUser(userToken, sessionString);
     try {
-      const client = await this.getClientForUser(userToken, sessionString);
 
       // Get channel entity
       const channel = await client.getEntity(channelId);
@@ -2733,6 +2672,9 @@ export class TelegramNestService {
         );
         return [];
       }
+
+      const peer = this.playbackPeer(channel);
+      if (!peer) return [];
 
       // Fetch messages from channel
       const messages = await client.invoke(
@@ -2798,7 +2740,8 @@ export class TelegramNestService {
             );
 
             results.push({
-              chatId: channelId,
+              peer,
+              chatId: peer.id,
               channelTitle: "title" in channel ? channel.title : undefined,
               messageId: message.id,
               fileName: fileName || null,
@@ -2819,11 +2762,15 @@ export class TelegramNestService {
 
       return results;
     } catch (error) {
+      if (error instanceof TypeNotFoundError) throw error;
       logger.error(
         { userToken, channelId, error: (error as Error).message },
         "Failed to retrieve channel messages",
       );
       return [];
+    } finally {
+      // Even early/empty results must not be cached after a client failure.
+      this.clientManager.assertClientUsable(client);
     }
   }
 
