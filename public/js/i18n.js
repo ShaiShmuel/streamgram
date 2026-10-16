@@ -332,11 +332,17 @@ export const supportedLanguages = { en: "English", he: "עברית", ru: "Рус
 const supported = (value) => Object.hasOwn(supportedLanguages, value);
 const urlLanguage = new URLSearchParams(location.search).get("lng");
 const savedLanguage = localStorage.getItem("streamgram-ui-language");
+const browserLanguage = [
+  ...(globalThis.navigator?.languages || []),
+  globalThis.navigator?.language,
+]
+  .map((value) => value?.toLowerCase().split("-")[0])
+  .find(supported);
 export const language = supported(urlLanguage)
   ? urlLanguage
   : supported(savedLanguage)
     ? savedLanguage
-    : "en";
+    : browserLanguage || "en";
 export const t = (text) => ({ he, ru, ar }[language]?.[text] || text);
 export function applyLanguage() {
   document.documentElement.lang = language;
