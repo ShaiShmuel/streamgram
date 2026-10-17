@@ -16,7 +16,7 @@
 </p>
 
 <p align="center">
-  <strong>StreamGram is an advanced, self-hosted addon for Stremio-like apps that serves as a direct bridge between your personal Telegram account and your streaming environment. Operating via a dedicated proxy server, it seamlessly searches your Telegram account in real-time, returning direct playback links for smooth, stable streaming—without requiring full file downloads. Open any movie or episode in your Stremio-like app, or map your specific Telegram folders and channels into a dynamic native catalog to browse your collection just like a personal VOD library.</strong>
+  <strong>StreamGram is an advanced, self-hosted addon for Stremio-like apps that connects your personal Telegram account to your streaming environment. Operating via a dedicated proxy server, it seamlessly searches your Telegram account in real-time, returning direct playback links for smooth, stable streaming—without requiring full file downloads. Open any movie or episode in your Stremio-like app, or map your specific Telegram folders and channels into a dynamic native catalog to browse your collection just like a personal VOD library.</strong>
 </p>
 
 ---
@@ -40,7 +40,7 @@
 - 🔍 **Global search** — open any movie or episode in Stremio and StreamGram searches across your entire connected Telegram account automatically.
 - 📺 **Stream provider** — returns direct stream links for any title Stremio resolves, no source setup required.
 - 📂 **Catalog addon** — optionally select specific Telegram folders or channels to appear as browsable catalogs inside Stremio, so you can explore and play your library directly.
-- 🔗 Install the bridge using a private `/:userToken/manifest.json` addon URL.
+- 🔗 Install StreamGram using a private `/:userToken/manifest.json` addon URL.
 - 🎬 Use TMDB metadata and localized search terms for movies and series.
 - 🏷️ Tag any accessible Telegram video to the catalog item of your choice using an IMDB or TMDB ID.
 - 🧙 Use the browser setup wizard for configuration, Telegram authentication, and source selection.
@@ -138,7 +138,7 @@ docker run -d --name streamgram --restart unless-stopped \
 docker logs -f streamgram
 ```
 
-Open `http://<server-ip>:3000/` to use the setup wizard. If the bridge is behind a reverse proxy, open the wizard through the public HTTPS domain instead.
+Open `http://<server-ip>:3000/` to use the setup wizard. If StreamGram is behind a reverse proxy, open the wizard through the public HTTPS domain instead.
 
 Add `--env-file .env` to `docker run` when supplying environment variables instead of using the setup wizard.
 
@@ -289,4 +289,4 @@ See [authentication and access documentation](docs/AUTHENTICATION.md) for detail
 ## Disclaimer
 
 > [!WARNING]
-> StreamGram is a bridge, not a media library. It does not host, upload, or distribute any content. You choose the Telegram sources your account can access and are solely responsible for using this software in compliance with applicable law, copyright permissions, Telegram's Terms of Service, and the terms of your client or provider.
+> StreamGram is a streaming addon, not a media library. It does not host, upload, or distribute any content. You choose the Telegram sources your account can access and are solely responsible for using this software in compliance with applicable law, copyright permissions, Telegram's Terms of Service, and the terms of your client or provider.
