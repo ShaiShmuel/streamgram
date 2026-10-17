@@ -30,7 +30,7 @@ test('search example appears after selection and follows each language and serve
   assert.equal(example.hidden, true);
   for (const [language, expected] of [
     ['he', 'ליל המתים החיים'], ['ru', 'Ночь живых мертвецов'],
-    ['ar', 'ليلة الموتى الأحياء'], ['en', 'Night of the Living Dead'],
+    ['ar', 'ليلة الموتى الأحياء'], ['es', 'La noche de los muertos vivientes'], ['en', 'Night of the Living Dead'],
     ['', 'Ночь живых мертвецов'],
   ]) {
     select.value = language;
@@ -42,8 +42,8 @@ test('search example appears after selection and follows each language and serve
     if (language === 'en') assert.doesNotMatch(example.innerHTML, / \/ /);
   }
 });
-test('all four URL languages override the saved preference and set text direction', () => {
-  for (const language of ['en', 'he', 'ru', 'ar']) {
+test('all supported URL languages override the saved preference and set text direction', () => {
+  for (const language of ['en', 'he', 'ru', 'ar', 'es']) {
     const result = locale(`?token=private&lng=${language}`, 'he');
     assert.equal(result.language, language);
     assert.equal(result.context.document.documentElement.dir,
@@ -55,9 +55,9 @@ test('invalid languages fall back to a valid saved preference or English', () =>
   assert.equal(locale('?lng=constructor', 'unknown').language, 'en');
   assert.equal(locale().language, 'en');
 });
-test('Russian and Arabic cover every Hebrew dashboard translation', () => {
+test('Russian, Arabic and Spanish cover every Hebrew dashboard translation', () => {
   const { context } = locale();
-  for (const lang of ['ru', 'ar']) {
+  for (const lang of ['ru', 'ar', 'es']) {
     const missing = Array.from(vm.runInContext(`Object.keys(he).filter(key => !${lang}[key])`, context));
     assert.deepEqual(missing, []);
   }
@@ -176,7 +176,7 @@ test('language selector preserves the account URL and updates an existing langua
   assert.equal((elements['#app'].innerHTML.match(/<option /g) || []).length, 4);
 });
 test('first-run search dropdown matches each dashboard language after initialization', async () => {
-  for (const language of ['en', 'he', 'ru', 'ar']) {
+  for (const language of ['en', 'he', 'ru', 'ar', 'es']) {
     const elements = new Map();
     let selected;
     const context = vm.createContext({
@@ -507,7 +507,7 @@ test('notification delivery failures refresh feedback and load failures remain v
 });
 test('notification settings copy has translations in every supported dashboard language', () => {
   const { context } = locale();
-  for (const lang of ['he', 'ru', 'ar']) {
+  for (const lang of ['he', 'ru', 'ar', 'es']) {
     const missing = Array.from(vm.runInContext(`['Telegram notifications', 'Enable Telegram notifications', 'Bot token', 'Destination chat ID', 'Notification types', 'Account joined', 'Account deleted', 'Successful admin login', 'Failed admin password', 'Admin password lockout', 'Send test notification', 'Telegram message sent'].filter(key => !${lang}[key])`, context));
     assert.deepEqual(missing, []);
   }

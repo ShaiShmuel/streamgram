@@ -1,5 +1,5 @@
 import { NotificationSettings } from "../notifications/dto/notification-settings.dto";
-export type SupportedLanguage = "en" | "he" | "ru" | "ar";
+export type SupportedLanguage = "en" | "he" | "ru" | "ar" | "es";
 
 /**
  * A single user's persisted entry inside the `users` map.

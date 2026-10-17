@@ -568,7 +568,7 @@ export class InstanceConfigService implements OnModuleInit {
       "en",
     );
 
-    return ["en", "he", "ru", "ar"].includes(candidate)
+    return ["en", "he", "ru", "ar", "es"].includes(candidate)
       ? (candidate as SupportedLanguage)
       : "en";
   }

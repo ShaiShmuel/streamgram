@@ -34,7 +34,7 @@ class ImportUserDto implements UserEntry {
   @IsString() phone: string;
   @IsString() sessionString: string;
   @IsString() @Matches(/^[A-Za-z0-9_-]{8,128}$/) token: string;
-  @IsIn(["en", "he", "ru", "ar"]) @IsOptional() language?: SupportedLanguage;
+  @IsIn(["en", "he", "ru", "ar", "es"]) @IsOptional() language?: SupportedLanguage;
   @IsArray() @IsInt({ each: true }) @IsOptional() selectedFolders?: number[];
   @IsArray()
   @IsString({ each: true })
@@ -91,7 +91,7 @@ export class ImportConfigDto {
   })
   publicUrl?: string;
   @IsOptional()
-  @IsIn(["en", "he", "ru", "ar"])
+  @IsIn(["en", "he", "ru", "ar", "es"])
   preferredLanguage?: SupportedLanguage;
   @IsOptional()
   @ValidateNested()

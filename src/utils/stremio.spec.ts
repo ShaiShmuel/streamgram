@@ -67,6 +67,18 @@ jest.mock("../config/configuration", () => ({
           tagActionDescription: "إرسال وسم وعرض التعليمات",
           noLocalizedTitleMessage: "لا يوجد عنوان محلي",
         },
+        es: {
+          name: "spanish",
+          seasonTerms: { long: ["temporada"], short: ["t", "s"] },
+          episodeTerms: { long: ["episodio", "capítulo", "capitulo"], short: ["e", "c"] },
+          subtitleIndicators: ["subtítulos", "subtitulos", "subtitulado", "sub español", "sub esp"],
+          dubbedIndicators: ["doblado", "castellano", "latino"],
+          subtitleLabel: "Subtítulos integrados",
+          dubbedLabel: "Doblado",
+          howToTagLabel: "Ayuda a encontrarlo",
+          tagActionDescription: "Enviar etiqueta y ver instrucciones",
+          noLocalizedTitleMessage: "No hay título en español",
+        },
       },
     },
   }),
@@ -150,9 +162,9 @@ describe("Stremio Utilities", () => {
   });
 
   describe("createHowToTagStream - Tag Assistant Feature", () => {
-    it.each(["en", "he", "ru", "ar", "fr"])("explains the tag action in %s while preserving the account URL and command", (language) => {
+    it.each(["en", "he", "ru", "ar", "es", "fr"])("explains the tag action in %s while preserving the account URL and command", (language) => {
       const actualConfig = jest.requireActual<typeof import("../config/configuration")>("../config/configuration").default();
-      const locale = language === "fr" ? "en" : language as "en" | "he" | "ru" | "ar";
+      const locale = language === "fr" ? "en" : language as "en" | "he" | "ru" | "ar" | "es";
       const copy = actualConfig.language.languages[locale];
       const media: MediaDetails = {
         id: 0, imdbId: "tt0120855", title: "Tarzan", localizedTitle: "Tarzan",
@@ -558,7 +570,7 @@ describe("Stremio Utilities", () => {
           episodeInfo: null,
         };
 
-        const languages = ["en", "he", "ru", "ar"];
+        const languages = ["en", "he", "ru", "ar", "es"];
         languages.forEach((lang) => {
           const result = createHowToTagStream(
             lang,

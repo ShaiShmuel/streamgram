@@ -34,7 +34,7 @@ Admin login and `x-admin-password` authentication share a per-IP failure counter
 
 ## Personal API
 
-Prefer `Authorization: Bearer <userToken>` on `/settings`, `/name`, `/folders`, `/channels`, and `/telegram-status`. Existing `?token=…` forms remain supported. Missing and invalid tokens return 401; there is no first-account fallback. `/settings` accepts only `language` (`en`, `he`, `ru`, `ar`, or `null` to inherit). `/name` accepts only `name` (up to 80 characters). Unknown fields are rejected.
+Prefer `Authorization: Bearer <userToken>` on `/settings`, `/name`, `/folders`, `/channels`, and `/telegram-status`. Existing `?token=…` forms remain supported. Missing and invalid tokens return 401; there is no first-account fallback. `/settings` accepts only `language` (`en`, `he`, `ru`, `ar`, `es`, or `null` to inherit). `/name` accepts only `name` (up to 80 characters). Unknown fields are rejected.
 
 `DELETE /auth/logout/:token` removes that account, invalidates its links and pending authentication, and disconnects its managed client. A bearer token, when supplied, must match the account in the path. Legacy token-bearing deletion URLs remain supported.
 

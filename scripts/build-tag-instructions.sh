@@ -8,11 +8,11 @@ trap 'rm -rf "$work_dir"' EXIT
 # Rebuild every language by default, or pass language codes (e.g. he ru ar).
 languages=("$@")
 if [ ${#languages[@]} -eq 0 ]; then
-  languages=(en he ru ar)
+  languages=(en he ru ar es)
 fi
 
 for language in "${languages[@]}"; do
-  case "$language" in en|he|ru|ar) ;; *) echo "Unsupported language: $language" >&2; exit 1 ;; esac
+  case "$language" in en|he|ru|ar|es) ;; *) echo "Unsupported language: $language" >&2; exit 1 ;; esac
   # Encode ten minutes once, then repeat the encoded packets for three hours.
   # Silent audio improves compatibility with TV media players.
   ffmpeg -hide_banner -loglevel error \

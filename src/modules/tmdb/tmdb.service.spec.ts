@@ -110,6 +110,20 @@ describe("TmdbService", () => {
       global.fetch = jest.fn();
     });
 
+    it("keeps accented Spanish metadata alongside the English search title", async () => {
+      const spanishTitle = "El niño y la ilusión";
+      (global.fetch as jest.Mock)
+        .mockResolvedValueOnce({ ok: true, json: async () => mockFindResponse })
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ ...mockEnglishDetails, title: spanishTitle }) })
+        .mockResolvedValueOnce({ ok: true, json: async () => mockEnglishDetails });
+      const result = await service.getMovieDetails(mockImdbId, "es");
+      expect(result.title).toBe("The Test Movie");
+      expect(result.localizedTitle).toBe(spanishTitle);
+      expect((global.fetch as jest.Mock).mock.calls.map(([url]: [string]) => url))
+        .toEqual(expect.arrayContaining([expect.stringContaining("language=es"), expect.stringContaining("language=en")]));
+      expect(global.fetch).toHaveBeenCalledTimes(3);
+    });
+
     it("should fetch movie details successfully with Hebrew localized title", async () => {
       (global.fetch as jest.Mock)
         .mockResolvedValueOnce({

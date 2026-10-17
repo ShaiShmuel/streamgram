@@ -1,14 +1,14 @@
 # Localized file-matching instruction screens
 
-Created with the built-in image generation tool. English uses the approved find-file screen with the forwarding note. Hebrew, Russian and Arabic use that exact approved English image as the localization reference. The heading explains how to find an existing Telegram file; tags appear only in the procedural instructions. Step 3 includes forwarding to Saved Messages or a private group if replies are unavailable.
+Created with the built-in image generation tool. English uses the approved find-file screen with the forwarding note. Hebrew, Russian, Arabic and Spanish use that exact approved English image as the localization reference. The heading explains how to find an existing Telegram file; tags appear only in the procedural instructions. Step 3 includes forwarding to Saved Messages or a private group if replies are unavailable.
 
-Assets: `instructions-{en,he,ru,ar}.{png,mp4}` in this directory.
+Assets: `instructions-{en,he,ru,ar,es}.{png,mp4}` in this directory.
 
 ## Playback
 
 Three-hour static 1920x1080 H.264 (yuv420p) videos at 1 fps with silent stereo AAC and fast-start metadata. Static-file middleware supports byte ranges. No runtime FFmpeg dependency.
 
-The tag action selects the authenticated account's addon language (en, he, ru, ar). Missing or unknown languages fall back to English. Hebrew and Arabic use right-to-left layouts. Recent tags remain deduplicated for five minutes; failed sends return HTTP 503 rather than showing success.
+The tag action selects the authenticated account's addon language (en, he, ru, ar, es). Missing or unknown languages fall back to English. Hebrew and Arabic use right-to-left layouts. Recent tags remain deduplicated for five minutes; failed sends return HTTP 503 rather than showing success.
 
 ## Rebuild
 
@@ -78,3 +78,5 @@ Keep note visually secondary at about 70% body font, readable. Fit everything wi
 The approved English source is instructions-en.png. Its edit prompt is saved in generation-en.md alongside the assets.
 
 Check playback in target Stremio clients before deploying broadly.
+
+The Spanish localization prompt is in generation-es.md. Spanish accounts use instructions-es.mp4.

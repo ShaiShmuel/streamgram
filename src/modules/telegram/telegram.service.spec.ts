@@ -7,6 +7,7 @@ import { TelegramClientManager } from "./telegram-client.manager";
 import { MediaSearchResult } from "./types";
 import { Api } from "teleproto";
 import bigInt from "big-integer";
+import configuration from "../../config/configuration";
 
 describe("TelegramNestService - Tag Feature", () => {
   let service: TelegramNestService;
@@ -20,6 +21,7 @@ describe("TelegramNestService - Tag Feature", () => {
           defaultLanguage: "en",
           preferredLanguage: "he",
           languages: {
+            es: configuration().language.languages.es,
             en: {
               name: "english",
               tmdbCode: "en",
@@ -73,6 +75,7 @@ describe("TelegramNestService - Tag Feature", () => {
     getStats: jest.fn(),
     clearAll: jest.fn(),
     cleanup: jest.fn(),
+    deleteSearchResults: jest.fn(),
   };
 
   const mockClientManager = {
@@ -1365,6 +1368,30 @@ describe("TelegramNestService - Tag Feature", () => {
   });
 
   describe("Edge Cases", () => {
+    it("searches Spanish season terms and filenames alongside English release names", () => {
+      const internal = service as unknown as {
+        LANGUAGE_CONFIG: { preferredLanguage: string };
+        generateEpisodeSearchQueries: (title: string, media: unknown, episode: unknown) => string[];
+      };
+      internal.LANGUAGE_CONFIG.preferredLanguage = "es";
+      const media = {
+        id: 1, title: "Money Heist", localizedTitle: "La casa de papel", type: "series",
+        episodeInfo: { season: 2, episode: 3 },
+      };
+      const queries = internal.generateEpisodeSearchQueries(media.localizedTitle, media, media.episodeInfo);
+      expect(queries).toEqual(expect.arrayContaining([
+        "La casa de papel temporada 2 episodio 3",
+        "La casa de papel t02 e03", "Money Heist s02e03",
+      ]));
+    });
+
+    it("invalidates Spanish catalog results after sending a tag", async () => {
+      await service.clearCacheByCatalogId("tt1234567", "spanish-account");
+      expect(mockCacheService.deleteSearchResults).toHaveBeenCalledWith(
+        "spanish-account", "catalog:spanish-account_es_tt1234567",
+      );
+    });
+
     it("generates Russian localized season and episode queries", () => {
       (service as any).LANGUAGE_CONFIG.preferredLanguage = "ru";
       const media = {

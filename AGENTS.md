@@ -20,7 +20,7 @@ Create a `.env` file or use the first-run web wizard. The wizard can collect all
 - `TELEGRAM_API_ID` & `TELEGRAM_API_HASH` - from https://my.telegram.org
 - `TMDB_BEARER_TOKEN` - TMDB v4 API bearer token
 - `PUBLIC_URL` - Public HTTPS URL for streaming (e.g., `https://yourdomain.com`)
-- `PREFERRED_LANGUAGE` - ISO 639-1 code (en, he, ru, ar)
+- `PREFERRED_LANGUAGE` - ISO 639-1 code (en, he, ru, ar, es)
 
 Management is protected by AdminGuard when admin protection is enabled. First-run initialization closes permanently after management is initialized. Personal APIs require explicit private account tokens.
 

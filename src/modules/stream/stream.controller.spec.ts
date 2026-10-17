@@ -24,7 +24,7 @@ describe("Tag instruction screen", () => {
     return { controller, telegram, cache, response };
   }
 
-  it.each(["en", "he", "ru", "ar"])("shows the %s video after sending the account's tag", async (language) => {
+  it.each(["en", "he", "ru", "ar", "es"])("shows the %s video after sending the account's tag", async (language) => {
     const { controller, telegram, cache, response } = setup();
     const req = { user: { token: "account-1", session_string: "session", language } } as Request;
     await controller.sendTag("tt1234567:1:2", req, response as unknown as Response);

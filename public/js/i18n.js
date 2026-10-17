@@ -1,4 +1,4 @@
-import { ru, ar } from "./translations.js";
+import { ru, ar, es } from "./translations.js";
 const he = {
   "Server settings": "הגדרות שרת",
   "Admin settings": "הגדרות מנהל",
@@ -204,6 +204,7 @@ const he = {
   Hebrew: "עברית",
   Russian: "רוסית",
   Arabic: "ערבית",
+  Spanish: "ספרדית",
   "Save changes": "שמירת שינויים",
   "Changes saved": "השינויים נשמרו",
   "Leave blank to keep the saved secret": "השאירו ריק כדי לשמור על הסוד הקיים",
@@ -328,7 +329,7 @@ const he = {
   "Ready to install": "מוכן להתקנה",
   "Skip to content": "דילוג לתוכן",
 };
-export const supportedLanguages = { en: "English", he: "עברית", ru: "Русский", ar: "العربية" };
+export const supportedLanguages = { en: "English", he: "עברית", ru: "Русский", ar: "العربية", es: "Español" };
 const supported = (value) => Object.hasOwn(supportedLanguages, value);
 const urlLanguage = new URLSearchParams(location.search).get("lng");
 const savedLanguage = localStorage.getItem("streamgram-ui-language");
@@ -343,7 +344,7 @@ export const language = supported(urlLanguage)
   : supported(savedLanguage)
     ? savedLanguage
     : browserLanguage || "en";
-export const t = (text) => ({ he, ru, ar }[language]?.[text] || text);
+export const t = (text) => ({ he, ru, ar, es }[language]?.[text] || text);
 export function applyLanguage() {
   document.documentElement.lang = language;
   document.documentElement.dir = ["he", "ar"].includes(language) ? "rtl" : "ltr";

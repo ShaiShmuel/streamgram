@@ -18,6 +18,7 @@ const LANGUAGE_TO_COUNTRY: Record<string, string> = {
   en: "US", // English -> United States
   ru: "RU", // Russian -> Russia
   ar: "EG", // Arabic -> Egypt
+  es: "ES", // Spanish -> Spain
 };
 
 // Unicode ranges for language detection
@@ -26,6 +27,7 @@ const LANGUAGE_UNICODE_RANGES: Record<string, Array<[number, number]>> = {
   ru: [[0x0400, 0x04ff]], // Cyrillic (Russian)
   ar: [[0x0600, 0x06ff]], // Arabic
   en: [[0x0000, 0x007f]], // Basic Latin (English)
+  es: [[0x0041, 0x005a], [0x0061, 0x007a], [0x00c0, 0x00ff]], // Spanish Latin letters and accents
 };
 
 /**

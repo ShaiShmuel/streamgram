@@ -3,6 +3,7 @@ import { $, esc } from "./shared.js";
 
 const titles = {
   en: "Night of the Living Dead",
+  es: "La noche de los muertos vivientes",
   he: "ליל המתים החיים",
   ru: "Ночь живых мертвецов",
   ar: "ليلة الموتى الأحياء",

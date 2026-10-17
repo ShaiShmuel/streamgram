@@ -995,7 +995,7 @@ export class StreamController {
       }
 
       // Use the authenticated account's addon language; keep asset paths allowlisted.
-      const language = ["en", "he", "ru", "ar"].includes(user.language)
+      const language = ["en", "he", "ru", "ar", "es"].includes(user.language)
         ? user.language
         : "en";
       res.redirect(302, `${this.getBaseUrl()}/assets/tag-assistant/instructions-${language}.mp4`);

@@ -1954,7 +1954,7 @@ export class TelegramNestService {
     userToken: string,
   ): Promise<void> {
     try {
-      const languages = ["en", "he", "ru", "ar"];
+      const languages = ["en", "he", "ru", "ar", "es"];
       const cacheKeys = languages.map(
         (language) => `catalog:${userToken}_${language}_${catalogId}`,
       );

@@ -36,7 +36,7 @@ export const badge = (label, kind = "") =>
 export function languageOptions(selected, inherit = false) {
   return (
     `${inherit ? `<option value="">${t("Use instance default")}</option>` : ""}` +
-    Object.entries({ en: "English", he: "Hebrew", ru: "Russian", ar: "Arabic" })
+    Object.entries({ en: "English", he: "Hebrew", ru: "Russian", ar: "Arabic", es: "Spanish" })
       .map(
         ([value, label]) =>
           `<option value="${value}" ${selected === value ? "selected" : ""}>${t(label)}</option>`,

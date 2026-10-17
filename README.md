@@ -44,7 +44,7 @@
 - 🎬 Use TMDB metadata and localized search terms for movies and series.
 - 🏷️ Tag any accessible Telegram video to the catalog item of your choice using an IMDB or TMDB ID.
 - 🧙 Use the browser setup wizard for configuration, Telegram authentication, and source selection.
-- 🌐 Support English, Hebrew, Russian, and Arabic search configuration.
+- 🌐 Support English, Hebrew, Russian, Arabic, and Spanish search configuration.
 
 ---
 
@@ -228,9 +228,9 @@ Open that URL to finish setup and install the addon. Keep admin protection enabl
 
 After initialization, `/` opens the admin dashboard with Overview, Accounts, Invitations, Server settings, Admin settings, and Tutorials. Admins can connect accounts directly or create seven-day, single-use invitations. Copy an invitation when it is created; its secret is not shown again.
 
-Each account has a personal page at `/{user_token}/configure` (the existing `/?action=settings&token=…` link also works). It manages only that account's display name, search language, optional catalogs, reconnection, and deletion. Personal language inherits the instance default unless overridden. English, Hebrew, Russian, and Arabic search remain supported; the dashboard supports all four languages, with RTL for Hebrew and Arabic. English is always searched; selecting Hebrew, Russian, or Arabic adds searches in that language. The instance search language defaults to English. During first-run setup, the search-language dropdown initially matches the dashboard language.
+Each account has a personal page at `/{user_token}/configure` (the existing `/?action=settings&token=…` link also works). It manages only that account's display name, search language, optional catalogs, reconnection, and deletion. Personal language inherits the instance default unless overridden. English, Hebrew, Russian, Arabic, and Spanish search remain supported; the dashboard supports all five languages, with RTL for Hebrew and Arabic. English is always searched; selecting Hebrew, Russian, Arabic, or Spanish adds searches in that language. The instance search language defaults to English. During first-run setup, the search-language dropdown initially matches the dashboard language.
 
-Set the dashboard language using `?lng=en`, `?lng=he`, `?lng=ru`, or `?lng=ar` (for example, `https://yourdomain.com/?lng=he`). For links that already have query parameters, append `&lng=he`. A valid URL language overrides the saved browser preference; otherwise the dashboard uses the saved preference or English. The dashboard language selector updates the URL and saves the preference. Interface language and search language can be changed independently.
+Set the dashboard language using `?lng=en`, `?lng=he`, `?lng=ru`, `?lng=ar`, or `?lng=es` (for example, `https://yourdomain.com/?lng=he`). For links that already have query parameters, append `&lng=he`. A valid URL language overrides the saved browser preference; otherwise the dashboard uses the saved preference or English. The dashboard language selector updates the URL and saves the preference. Interface language and search language can be changed independently.
 
 Private account links grant access without a separate user password. Protected management uses an eight-hour browser session; legacy `X-Admin-Password` clients remain supported. Existing installations without an admin password stay unprotected until you enable protection in Admin settings. Removing all accounts never reopens public first-run setup.
 
@@ -268,7 +268,7 @@ All values below are optional when using the setup wizard. Saved values in `data
 | `TELEGRAM_API_ID`    | Telegram API ID from [my.telegram.org](https://my.telegram.org).                                     |
 | `TELEGRAM_API_HASH`  | Telegram API hash from [my.telegram.org](https://my.telegram.org).                                   |
 | `TMDB_BEARER_TOKEN`  | TMDB v4 Read Access Token.                                                                           |
-| `PREFERRED_LANGUAGE` | `en`, `he`, `ru`, or `ar`; defaults to `en`.                                                         |
+| `PREFERRED_LANGUAGE` | `en`, `he`, `ru`, `ar`, or `es`; defaults to `en`.                                                         |
 | `PORT`               | HTTP port; defaults to `3000`.                                                                       |
 
 ---

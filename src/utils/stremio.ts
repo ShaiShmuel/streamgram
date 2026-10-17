@@ -227,7 +227,7 @@ export function formatStreamForStremio(
  * Creates a file-matching help stream that sends a tag and opens instructions
  * that shows users how to tag media using the /tag command in Telegram.
  *
- * @param userLanguage - ISO 639-1 language code (e.g., "en", "he", "ru", "ar")
+ * @param userLanguage - ISO 639-1 language code (e.g., "en", "he", "ru", "ar", "es")
  * @param mediaDetails - Media metadata including title, localized title, type, and episode info
  * @param catalogId - Stremio catalog ID (e.g., "tt0108778:1:1" or "tmdb:550")
  * @param _instanceKey - Kept for compatibility with the existing call sites; the URL is tokenless

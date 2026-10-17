@@ -173,7 +173,7 @@ describe("Persistence, passwords and invitations", () => {
     await c.update({ adminPassword: "test-password" });
     expect(JSON.parse(c.exportRaw()).adminPasswordHash).not.toBe(first);
   });
-  it("keeps personal language and catalogs isolated and supports inheritance", async () => {
+  it.each(["he", "es"] as const)("keeps %s personal language and catalogs isolated and supports inheritance", async (language) => {
     const c = instance();
     await c.initialize({ ...settings, adminProtection: false });
     const a = c.completeAuthentication(
@@ -188,12 +188,12 @@ describe("Persistence, passwords and invitations", () => {
         "2",
         "session-b",
       );
-    c.updatePersonal(a.token, { language: "he", name: "Alice" });
+    c.updatePersonal(a.token, { language, name: "Alice" });
     await c.updateUserSelections(a.token, {
       selectedFolders: [1],
       selectedChannels: ["2"],
     });
-    expect(c.getProfile(a.token).language).toBe("he");
+    expect(c.getProfile(a.token).language).toBe(language);
     expect(c.getProfile(b.token).language).toBe("en");
     expect(c.getUserByToken(b.token)?.selectedFolders).toBeUndefined();
     expect(c.getConfig().preferredLanguage).toBe("en");
@@ -329,7 +329,7 @@ describe("Persistence, passwords and invitations", () => {
     expect(Object.keys(c.getUsers())).toHaveLength(0);
     expect(c.validateInvitation(invite.secret).id).toBe(invite.id);
   });
-  it("restores users/preferences but preserves admin security and invalidates invitations", async () => {
+  it.each(["ar", "es"] as const)("restores %s preferences but preserves admin security and invalidates invitations", async (language) => {
     const c = instance();
     await c.initialize({ ...settings, adminPassword: "current-password" });
     c.createInvitation();
@@ -340,7 +340,7 @@ describe("Persistence, passwords and invitations", () => {
           token: "restoretoken1",
           phone: "+12345",
           sessionString: "restored",
-          language: "ar",
+          language,
           selectedFolders: [1],
           selectedChannels: ["2"],
         },
@@ -352,11 +352,11 @@ describe("Persistence, passwords and invitations", () => {
     expect(c.isProtected()).toBe(true);
     expect(c.getInvitations()).toEqual([]);
     expect(c.securityRevision).toBeGreaterThan(revision);
-    expect(c.getProfile("restoretoken1").language).toBe("ar");
+    expect(c.getProfile("restoretoken1").language).toBe(language);
     expect(
       JSON.parse(readFileSync(join(directory, "config.json"), "utf8")).users
         .restoretoken1.language,
-    ).toBe("ar");
+    ).toBe(language);
   });
   it.each([
     { users: { bad: { token: "other", phone: "1", sessionString: "s" } } },
@@ -835,6 +835,8 @@ describe("HTTP management and personal access", () => {
         .status,
     ).toBe(200);
     expect(config.getProfile(b.token).language).toBe("en");
+    expect((await request("/settings?token=" + a.token, "PUT", { language: "es" })).status).toBe(200);
+    expect(config.getProfile(a.token).language).toBe("es");
   });
   it("retains configure/manifest URLs and optional catalog installation", async () => {
     const a = config.completeAuthentication(

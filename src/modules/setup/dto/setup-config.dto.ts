@@ -42,8 +42,8 @@ export class SetupConfigDto {
   tmdbBearerToken?: string;
 
   @IsOptional()
-  @IsIn(["en", "he", "ru", "ar"])
-  preferredLanguage?: "en" | "he" | "ru" | "ar";
+  @IsIn(["en", "he", "ru", "ar", "es"])
+  preferredLanguage?: "en" | "he" | "ru" | "ar" | "es";
 
   @IsOptional()
   @IsString()
