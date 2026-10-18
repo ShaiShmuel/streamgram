@@ -40,10 +40,9 @@
 
 ## Features
 
-- 🔎 **Telegram file search** — search directly from Stremio or Nuvio to see up to 100 matching videos from your Telegram account. Each result opens as its own item with one playback stream. Thumbnails load on demand, with the StreamGram logo as a fallback; images are not stored on the server. Refresh or reinstall the addon after upgrading to load the new search catalog.
-- 🔍 **Global search** — open any movie or episode in Stremio and StreamGram searches across your entire connected Telegram account automatically.
-- 📺 **Stream provider** — returns direct stream links for any title Stremio resolves, no source setup required.
-- 📂 **Catalog addon** — optionally select specific Telegram folders or channels to appear as browsable catalogs inside Stremio, so you can explore and play your library directly.
+- 📺 **Stream provider** — open a movie or episode in Stremio or Nuvio to find matching Telegram playback sources using the title's metadata and localized names.
+- 📂 **Channel and folder catalogs** — select Telegram channels or folders in settings and browse their videos as catalogs in your player.
+- 🔎 **Global Telegram search** — search from Stremio or Nuvio using exactly the text you type, just like searching in Telegram. Get up to 100 video items, each with one playback stream.
 - 🔗 Install StreamGram using a private `/:userToken/manifest.json` addon URL.
 - 🎬 Use TMDB metadata and localized search terms for movies and series.
 - 🏷️ Tag any accessible Telegram video to the catalog item of your choice using an IMDB or TMDB ID.
@@ -54,30 +53,26 @@
 
 ## How the Addon Works
 
-StreamGram connects your Telegram account to Stremio as **two addon types in one**. Here's how each mode works:
+StreamGram brings your Telegram videos into Stremio and Nuvio in three ways:
 
-### Stream Provider — On-Demand Global Search
+### 1. Stream Provider — Sources for Movies and Series
 
-When you open a movie or episode in Stremio, StreamGram searches _globally_ across your **entire connected Telegram account** — no source configuration required. It looks for video files whose filenames or captions match the title, using TMDB metadata and multi-language terms to maximize results. Matching files are returned as stream links and played directly from Telegram.
+Open a movie or episode from a catalog in your player. StreamGram uses its metadata, localized titles and episode information to find matching Telegram videos and show them as playback sources for that title.
 
-**This means:** if the media doesn't exist anywhere in your Telegram account, there will be no results.
+### 2. Channel and Folder Catalogs — Browse Videos
 
-### Catalog — Browse Your Library
+Select Telegram channels or folders in settings. They appear as catalogs in your player, where you can browse their videos and choose what to watch.
 
-Optionally, you can select specific Telegram folders and channels to appear as **native browsable catalogs** inside Stremio. Instead of searching, you navigate them like a library tab — scroll through all the videos in a folder or channel and play any one directly. This feature requires at least one source to be selected in the setup wizard.
+### 3. Global Telegram Search — Search What You Type
+
+Type in the app's global search and look for **StreamGram — Telegram Search**. Your exact text is sent to Telegram's global message search in your connected account, just like searching in Telegram itself. Up to 100 matching videos appear as separate items, each with one playback stream. This searches your account, including Saved Messages, without translating the query or using movie metadata.
 
 ### Pinned Tagging — Precise Matching
 
 You can "pin" any Telegram video to a specific IMDB or TMDB catalog item using the `/tag` command (reply to the video in Telegram). Tagged videos are always matched correctly and appear first — even if the filename doesn't match the title.
 
-| Mode                | How it's triggered                                                                              | Requires                              |
-| ------------------- | ----------------------------------------------------------------------------------------------- | ------------------------------------- |
-| **Stream Provider** | You open a movie or episode in Stremio → StreamGram searches your whole Telegram account        | Just a connected Telegram account     |
-| **Catalog**         | You browse a catalog tab in Stremio → StreamGram lists videos from selected folders/channels    | At least one source selected in setup |
-| **Tagged Video**    | You reply `/tag <id>` to a video in Telegram → it's pinned to that catalog item by IMDB/TMDB ID | Accessible Telegram video             |
-
 > [!NOTE]
-> **Stream Provider works immediately** after connecting your Telegram account — no source selection needed. Selecting sources is only required if you want to browse catalogs inside Stremio.
+> **Neither search mode requires selecting channels or folders.** Source selections only control which channels and folders appear as browsing catalogs. Both search modes use the Telegram account connected to your private addon link.
 
 ---
 
