@@ -374,6 +374,7 @@ export class InstanceConfigService implements OnModuleInit {
     telegramId: string,
     sessionString: string,
     telegramName?: string,
+    language: SupportedLanguage = "en",
   ): UserEntry {
     const invitation = owner.kind === "invitation"
       ? this.requireInvitation(owner.id)
@@ -410,6 +411,7 @@ export class InstanceConfigService implements OnModuleInit {
       phone,
       telegramId,
       sessionString,
+      language: existing?.language ?? language,
     };
     users[entry.token] = entry;
     this.commit({

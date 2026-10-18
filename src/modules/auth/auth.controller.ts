@@ -11,8 +11,10 @@ import {
 } from "@nestjs/common";
 import { IsOptional, IsString, MaxLength } from "class-validator";
 import { Request } from "express";
+import { SupportedLanguage } from "../user/instance-profile";
 import { AuthService } from "./auth.service";
 import { ManagementService } from "../management/management.service";
+import { AuthLanguageDto } from "./dto/auth-language.dto";
 import { SendCodeDto } from "./dto/send-code.dto";
 import { VerifyCodeDto } from "./dto/verify-code.dto";
 class QrPasswordDto {
@@ -27,7 +29,11 @@ export class AuthController {
   @Post("send-code")
   @HttpCode(200)
   sendCode(@Body() body: SendCodeDto, @Req() request: Request) {
-    return this.auth.sendCode(body.phone, this.management.authOwner(request));
+    return this.auth.sendCode(
+      body.phone,
+      this.management.authOwner(request),
+      body.language ?? this.browserLanguage(request),
+    );
   }
   @Post("verify-code")
   @HttpCode(200)
@@ -42,8 +48,11 @@ export class AuthController {
   }
   @Post("qr/generate")
   @HttpCode(200)
-  generateQr(@Req() request: Request) {
-    return this.auth.generateQrCode(this.management.authOwner(request));
+  generateQr(@Body() body: AuthLanguageDto, @Req() request: Request) {
+    return this.auth.generateQrCode(
+      this.management.authOwner(request),
+      body.language ?? this.browserLanguage(request),
+    );
   }
   @Get("qr/status/:qrToken")
   qrStatus(@Param("qrToken") id: string, @Req() request: Request) {
@@ -62,6 +71,15 @@ export class AuthController {
       body.password,
     );
   }
+  private browserLanguage(request: Request): SupportedLanguage {
+    for (const locale of request.acceptsLanguages()) {
+      const language = locale.toLowerCase().split("-")[0];
+      if (["en", "he", "ru", "ar", "es"].includes(language))
+        return language as SupportedLanguage;
+    }
+    return "en";
+  }
+
   @Get("qr/instructions")
   instructions() {
     return this.auth.getQrInstructions();

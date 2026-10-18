@@ -1,7 +1,8 @@
 import { IsString, IsNotEmpty, Matches } from "class-validator";
 import { Transform } from "class-transformer";
+import { AuthLanguageDto } from "./auth-language.dto";
 
-export class SendCodeDto {
+export class SendCodeDto extends AuthLanguageDto {
   @IsString()
   @IsNotEmpty()
   @Transform(({ value }: { value: unknown }) =>

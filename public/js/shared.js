@@ -45,7 +45,7 @@ export function languageOptions(selected, inherit = false) {
   );
 }
 let disposeNavigation = () => {};
-export function shell(mode = "", tab = "") {
+export function shell(mode = "", tab = "", onLanguageChange) {
   disposeNavigation();
   disposeNavigation = () => {};
   const brand = `<a class="brand" href="/"><img class="brandmark" src="/logo-icon-only.png" alt="" width="48" height="48"><span>StreamGram<small>${t("Private instance")}</small></span></a>`;
@@ -66,10 +66,23 @@ export function shell(mode = "", tab = "") {
   $("#app").innerHTML =
     `<div class="${mode === "admin" ? "shell" : "standalone"}">${mode === "admin" ? `<header class="mobile-bar">${brand}<button type="button" id="menu-toggle" aria-controls="management-sidebar" aria-expanded="false">${icon("menu")}${t("Menu")}</button></header><div class="drawer-backdrop" id="drawer-backdrop" hidden></div><aside id="management-sidebar" aria-label="${t("Management")}"><div class="sidebar-heading">${brand}<button type="button" id="menu-close" class="ghost" aria-label="${t("Close menu")}">${icon("close")}</button></div><nav aria-label="${t("Management")}">${nav}</nav><div class="aside-footer">${languageControl}${button("Sign out", "signout", "ghost")}</div></aside>` : ""}<div${mode === "admin" ? ' id="admin-content"' : ""}>${mode === "admin" ? "" : `<header>${brand}<div class="toolbar">${languageControl}</div></header>`}<main id="main" tabindex="-1"></main></div></div>`;
   if (mode === "admin") disposeNavigation = bindMobileNavigation();
-  $("#ui-language").onchange = (e) => {
-    localStorage.setItem("streamgram-ui-language", e.target.value);
+  $("#ui-language").onchange = async (e) => {
+    const selectedLanguage = e.target.value;
+    if (onLanguageChange) {
+      e.target.disabled = true;
+      try {
+        await onLanguageChange(selectedLanguage);
+      } catch (error) {
+        e.target.value = language;
+        errorMessage(error, $("#main"));
+        return;
+      } finally {
+        e.target.disabled = false;
+      }
+    }
+    try { localStorage.setItem("streamgram-ui-language", selectedLanguage); } catch { /* Keep language in the URL. */ }
     const url = new URL(location.href);
-    url.searchParams.set("lng", e.target.value);
+    url.searchParams.set("lng", selectedLanguage);
     location.assign(url.href);
   };
   if ($("#signout"))

@@ -16,7 +16,9 @@ import {
 } from "./shared.js";
 import { connect } from "./auth.js";
 export async function personal(token) {
-  shell("personal");
+  shell("personal", "", (language) => api("/settings", {
+    method: "PUT", token, body: { language },
+  }));
   $("#main").innerHTML = `<p role="status">${t("Loading…")}</p>`;
   const data = await api("/settings", { token });
   $("#main").innerHTML =
