@@ -60,16 +60,23 @@ describe("Persistence, passwords and invitations", () => {
       .toBe("Invitation name");
     expect(config.completeAuthentication(owner, "+33333", "3", "session").name).toBeUndefined();
   });
-  it("preserves personal search language when reconnecting from another browser", () => {
+  it("inherits the server search language until explicitly changed and preserves the choice on reconnect", async () => {
     const config = instance();
+    await config.update({ ...settings, preferredLanguage: "he" }, true);
     const owner: AuthOwner = { kind: "admin", id: "admin" };
-    const user = config.completeAuthentication(owner, "+11111", "1", "session", undefined, "he");
+    const user = config.completeAuthentication(owner, "+11111", "1", "session");
+    expect(user.language).toBeUndefined();
+    expect(config.getProfile(user.token).language).toBe("he");
+    await config.update({ preferredLanguage: "ru" });
+    expect(config.getProfile(user.token).language).toBe("ru");
     config.updatePersonal(user.token, { language: "es" });
     const reconnected = config.completeAuthentication(
-      { kind: "user", id: user.token }, "+11111", "1", "new-session", undefined, "ru",
+      { kind: "user", id: user.token }, "+11111", "1", "new-session",
     );
     expect(reconnected.language).toBe("es");
-    expect(instance().getUserByToken(user.token)?.language).toBe("es");
+    expect(instance().getProfile(user.token).language).toBe("es");
+    config.updatePersonal(user.token, { language: null });
+    expect(config.getProfile(user.token).language).toBe("ru");
   });
   it("records creation time through both account creation paths and preserves it on reconnect and restore", async () => {
     const config = instance();
@@ -970,40 +977,31 @@ describe("HTTP management and personal access", () => {
       expect(telegram.sendAuthCode.mock.calls).toHaveLength(before);
     },
   );
-  describe.each(["phone", "qr"])("Browser search language (%s)", (mode) => {
-    it.each([
-      ["he-IL, en;q=0.8", "he", undefined],
-      ["en-US;q=0.5, ru-RU;q=0.9", "ru", undefined],
-      ["fr-FR, es-MX;q=0.8", "es", undefined],
-      ["ar-SA, en;q=0.5", "ar", undefined],
-      ["fr-FR, de-DE;q=0.8", "en", undefined],
-      ["*", "en", undefined],
-      ["en-US", "he", "he"],
-      ["he-IL", "en", "en"],
-    ])("persists %s as %s instead of the instance default", async (locale, expected, selectedLanguage?: string) => {
-      await config.update({ preferredLanguage: expected === "he" ? "ru" : "he" });
-      telegram.sendAuthCode.mockResolvedValue({ phoneCodeHash: "hash", tempSessionString: "temp" });
-      telegram.verifyAuthCode.mockResolvedValue("session");
-      telegram.exportLoginToken.mockResolvedValue({
-        token: Buffer.from("qr"), tempSessionString: "temp",
-        expires: Math.floor(Date.now() / 1000) + 60,
-      });
-      telegram.checkLoginToken.mockResolvedValue("session");
-      clients.getOrInitializeClient.mockResolvedValue({ getMe: async () => ({ id: 1, phone: "11111" }) });
-      const start = await request(
-        mode === "phone" ? "/auth/send-code" : "/auth/qr/generate",
-        "POST", { ...(mode === "phone" ? { phone: "+11111" } : {}), ...(selectedLanguage ? { language: selectedLanguage } : {}) },
-        { cookie, "accept-language": locale },
-      );
-      expect(start.status).toBe(200);
-      // The initial browser preference survives subsequent requests with a different locale.
-      const done = mode === "phone"
-        ? await request("/auth/verify-code", "POST", { phone: "+11111", code: "12345", attemptId: start.data.attemptId }, { cookie, "accept-language": "en" })
-        : await request(`/auth/qr/status/${start.data.qrToken}`, "GET", undefined, { cookie, "accept-language": "en" });
-      expect(done.status).toBe(200);
-      expect(config.getUserByToken(done.data.user.token)?.language).toBe(expected);
-      expect(instance().getUserByToken(done.data.user.token)?.language).toBe(expected);
+  it.each(["phone", "qr"])("new %s accounts inherit the server language despite a different browser language", async (mode) => {
+    await config.update({ preferredLanguage: "ru" });
+    telegram.sendAuthCode.mockResolvedValue({ phoneCodeHash: "hash", tempSessionString: "temp" });
+    telegram.verifyAuthCode.mockResolvedValue("session");
+    telegram.exportLoginToken.mockResolvedValue({
+      token: Buffer.from("qr"), tempSessionString: "temp",
+      expires: Math.floor(Date.now() / 1000) + 60,
     });
+    telegram.checkLoginToken.mockResolvedValue("session");
+    clients.getOrInitializeClient.mockResolvedValue({ getMe: async () => ({ id: 1, phone: "11111" }) });
+    const start = await request(
+      mode === "phone" ? "/auth/send-code" : "/auth/qr/generate",
+      "POST", mode === "phone" ? { phone: "+11111" } : {},
+      { cookie, "accept-language": "he-IL" },
+    );
+    expect(start.status).toBe(200);
+    const done = mode === "phone"
+      ? await request("/auth/verify-code", "POST", { phone: "+11111", code: "12345", attemptId: start.data.attemptId }, { cookie })
+      : await request(`/auth/qr/status/${start.data.qrToken}`, "GET", undefined, { cookie });
+    expect(done.status).toBe(200);
+    const token = done.data.user.token;
+    expect(config.getUserByToken(token)?.language).toBeUndefined();
+    expect(config.getProfile(token).language).toBe("ru");
+    await config.update({ preferredLanguage: "ar" });
+    expect(config.getProfile(token).language).toBe("ar");
   });
   it("binds phone attempts to owners, supports 2FA retry, preserves invite on failure", async () => {
     const auth = app.get(AuthService);
@@ -1015,7 +1013,7 @@ describe("HTTP management and personal access", () => {
       tempSessionString: "temp",
       isCodeViaApp: true,
     });
-    const start = await auth.sendCode("+11111", owner, "he");
+    const start = await auth.sendCode("+11111", owner);
     await expect(
       auth.verifyCode(
         "+11111",
@@ -1078,7 +1076,6 @@ describe("HTTP management and personal access", () => {
       start.attemptId,
     );
     expect(done.success).toBe(true);
-    expect(config.getUserByToken(done.user?.token ?? "")?.language).toBe("he");
     expect(config.getUserByToken(done.user?.token ?? "")?.name).toBe("Telegram Name");
     expect(() => config.validateInvitation(invite.secret)).toThrow("used");
   });
@@ -1112,7 +1109,7 @@ describe("HTTP management and personal access", () => {
       tempSessionString: "temp",
       expires: Math.floor(Date.now() / 1000) + 60,
     });
-    const qr = await auth.generateQrCode(owner, "es");
+    const qr = await auth.generateQrCode(owner);
     await expect(
       auth.checkQrStatus(qr.qrToken, { kind: "invitation", id: "other" }),
     ).rejects.toThrow("another session");
@@ -1130,7 +1127,6 @@ describe("HTTP management and personal access", () => {
       (await auth.checkQrStatus(qr.qrToken, owner, "password")).status,
     ).toBe("authorized");
     expect(Object.values(config.getUsers())[0].name).toBe("telegram_handle");
-    expect(Object.values(config.getUsers())[0].language).toBe("es");
     expect(telegram.checkLoginToken).toHaveBeenLastCalledWith(
       Buffer.from("qr"),
       "migrated-session",

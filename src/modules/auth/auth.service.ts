@@ -12,12 +12,11 @@ import {
 } from "../telegram/telegram.service";
 import { TelegramClientManager } from "../telegram/telegram-client.manager";
 import { InstanceConfigService } from "../user/instance-config.service";
-import { AuthOwner, SupportedLanguage } from "../user/instance-profile";
+import { AuthOwner } from "../user/instance-profile";
 import { ManagementService } from "../management/management.service";
 
 interface Attempt {
   owner: AuthOwner;
-  language?: SupportedLanguage;
   revision: number;
   created: number;
   expires: number;
@@ -91,12 +90,11 @@ export class AuthService {
     return a;
   }
 
-  async sendCode(phone: string, owner: AuthOwner, language: SupportedLanguage = "en") {
+  async sendCode(phone: string, owner: AuthOwner) {
     const normalized = `+${phone.replace(/\D/g, "")}`;
     const result = await this.telegram.sendAuthCode(normalized);
     const attemptId = this.newAttempt(owner, {
       phone: normalized,
-      language,
       hash: result.phoneCodeHash,
       session: result.tempSessionString,
     });
@@ -172,7 +170,7 @@ export class AuthService {
     }
   }
 
-  async generateQrCode(owner: AuthOwner, language: SupportedLanguage = "en") {
+  async generateQrCode(owner: AuthOwner) {
     const result = await this.telegram.exportLoginToken();
     const expiresIn = Math.max(
       1,
@@ -180,7 +178,7 @@ export class AuthService {
     );
     const qrToken = this.newAttempt(
       owner,
-      { session: result.tempSessionString, qr: result.token, language },
+      { session: result.tempSessionString, qr: result.token },
       expiresIn * 1000,
     );
     const qrCodeData = `tg://login?token=${result.token.toString("base64url")}`;
@@ -266,7 +264,6 @@ export class AuthService {
         session,
         [me.firstName, me.lastName].filter(Boolean).join(" ").trim() ||
           me.username,
-        a.language,
       );
       this.attempts.delete(id);
       await this.clients.removeClient(entry.token);

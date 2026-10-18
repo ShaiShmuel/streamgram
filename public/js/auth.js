@@ -1,4 +1,4 @@
-import { t, language } from "./i18n.js";
+import { t } from "./i18n.js";
 import { $, api, button, dialog, errorMessage, run } from "./shared.js";
 export function connect(context, onConnected) {
   const d = dialog(
@@ -51,7 +51,7 @@ export function connect(context, onConnected) {
       $("#qr-output", d).replaceChildren();
       $("#qr-password", d).hidden = true;
       try {
-        const data = await api("/auth/qr/generate", { method: "POST", body: { language }, ...context });
+        const data = await api("/auth/qr/generate", { method: "POST", ...context });
         if (!d.open || epoch !== generation) return;
         qrToken = data.qrToken;
         const img = document.createElement("img");
@@ -132,7 +132,7 @@ export function connect(context, onConnected) {
           phone = $("#phone", d).value.trim();
           const data = await api("/auth/send-code", {
             method: "POST",
-            body: { phone, language },
+            body: { phone },
             ...context,
           });
           if (!d.open || epoch !== generation) return;

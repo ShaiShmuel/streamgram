@@ -106,7 +106,7 @@ test('QR generates automatically, expiry is red, and regeneration creates a new 
   await h.settle();
   assert.equal(h.calls[0].url, '/auth/qr/generate');
   assert.equal(h.calls[0].options.token, 'private');
-  assert.equal(h.calls[0].options.body.language, 'he');
+  assert.equal(h.calls[0].options.body, undefined);
   assert.equal(h.element('#generate').hidden, true);
   assert.equal(h.element('#qr-output').children.length, 1);
   await h.fire(60000);
@@ -176,41 +176,23 @@ test('language selector preserves the account URL and updates an existing langua
   assert.equal(saved['streamgram-ui-language'], 'ar');
   assert.equal((elements['#app'].innerHTML.match(/<option /g) || []).length, 4);
 });
-test('interface language waits for saving account preference and stays on the page if saving fails', async () => {
-  for (const fail of [false, true]) {
-    const elements = { '#app': {}, '#ui-language': {}, '#main': { querySelector: () => null, prepend() {} } };
-    const saved = {}, errors = [];
-    let finish, selected;
-    const location = { href: 'https://example.test/?token=private', assign(url) { this.assigned = url; } };
-    const context = vm.createContext({
-      t: text => text, language: 'en', URL, supportedLanguages: { en: 'English', he: 'עברית' },
-      document: { querySelector: selector => elements[selector] }, location,
-      localStorage: { setItem: (key, value) => { saved[key] = value; } },
-      save: value => { selected = value; return new Promise((resolve, reject) => { finish = () => fail ? reject(new Error('Save failed')) : resolve(); }); },
-      errors,
-    });
-    vm.runInContext(source('shared.js') + '\nerrorMessage = error => errors.push(error.message); shell("personal", "", save);', context);
-    const control = elements['#ui-language'];
-    control.value = 'he';
-    const change = control.onchange({ target: control });
-    assert.equal(selected, 'he');
-    assert.equal(control.disabled, true);
-    assert.equal(location.assigned, undefined);
-    finish();
-    await change;
-    assert.equal(control.disabled, false);
-    if (fail) {
-      assert.equal(location.assigned, undefined);
-      assert.equal(saved['streamgram-ui-language'], undefined);
-      assert.equal(control.value, 'en');
-      assert.deepEqual(errors, ['Save failed']);
-    } else {
-      assert.equal(location.assigned, 'https://example.test/?token=private&lng=he');
-      assert.equal(saved['streamgram-ui-language'], 'he');
-    }
-  }
+test('personal interface language changes only the browser preference without saving account settings', () => {
+  const elements = { '#app': {}, '#ui-language': {} };
+  const saved = {}, calls = [];
+  const location = { href: 'https://example.test/?token=private', assign(url) { this.assigned = url; } };
+  const context = vm.createContext({
+    t: text => text, language: 'en', URL, supportedLanguages: { en: 'English', he: 'עברית' },
+    document: { querySelector: selector => elements[selector] }, location,
+    localStorage: { setItem: (key, value) => { saved[key] = value; } },
+    fetch: (...args) => { calls.push(args); throw new Error('Interface changes must not update the account'); },
+  });
+  vm.runInContext(source('shared.js') + '\nshell("personal");', context);
+  elements['#ui-language'].onchange({ target: { value: 'he' } });
+  assert.equal(location.assigned, 'https://example.test/?token=private&lng=he');
+  assert.equal(saved['streamgram-ui-language'], 'he');
+  assert.deepEqual(calls, []);
 });
-test('phone authentication sends the selected interface language', async () => {
+test('phone authentication does not send the interface language as an account preference', async () => {
   const h = authHarness(() => qr);
   await h.settle();
   h.element('#phone-mode').onclick();
@@ -218,7 +200,7 @@ test('phone authentication sends the selected interface language', async () => {
   h.element('#send-code').onsubmit({ preventDefault() {} });
   await h.settle();
   assert.equal(h.calls.at(-1).url, '/auth/send-code');
-  assert.equal(h.calls.at(-1).options.body.language, 'he');
+  assert.equal(h.calls.at(-1).options.body.language, undefined);
 });
 test('first-run search dropdown matches each dashboard language after initialization', async () => {
   for (const language of ['en', 'he', 'ru', 'ar', 'es']) {
@@ -436,13 +418,12 @@ test('invitation greeting escapes the recipient name and supports unnamed invita
 
 test('personal page hides account names and saves language without changing the name', async () => {
   const elements = new Map(), calls = [];
-  let changeLanguage;
   const element = selector => {
     if (!elements.has(selector)) elements.set(selector, { innerHTML: '', value: 'he' });
     return elements.get(selector);
   };
   const context = vm.createContext({
-    bindSearchLanguageExample() {}, shell: (_mode, _tab, onLanguageChange) => { changeLanguage = onLanguageChange; }, t: text => text, $: element, esc: value => String(value ?? ""),
+    bindSearchLanguageExample() {}, shell() {}, t: text => text, $: element, esc: value => String(value ?? ""),
     badge: () => '', installCard: () => '', button: () => '', languageOptions: () => '',
     api: async (url, options) => { calls.push({ url, options }); return { name: 'Admin label' }; },
     run: async (_, work) => work(), toast() {},
@@ -454,10 +435,6 @@ test('personal page hides account names and saves language without changing the 
   assert.equal(calls.length, 2);
   assert.equal(calls[1].url, '/settings');
   assert.equal(calls[1].options.body.language, 'he');
-  await changeLanguage('ru');
-  assert.equal(calls[2].url, '/settings');
-  assert.equal(calls[2].options.token, 'private');
-  assert.equal(calls[2].options.body.language, 'ru');
 });
 
 test('signed-in admins edit the account name in the original preferences form', async () => {
