@@ -6,10 +6,12 @@
   <img src="https://img.shields.io/badge/NestJS-10-E0234E?logo=nestjs&logoColor=white" alt="NestJS 10">
   <img src="https://img.shields.io/badge/License-GPLv3-blue" alt="GPLv3 License">
   <img src="https://img.shields.io/badge/Stremio-Addon-8A05BE?logo=stremio&logoColor=white" alt="Stremio Addon">
-  <a href="https://t.me/AddonStreamGram"><img src="https://img.shields.io/badge/Telegram-Community-2CA5E0?logo=telegram&logoColor=white" alt="Telegram Community"></a>
 </p>
 
 <p align="center">
+  <a href="https://discord.gg/hZ6YzUWzYK">
+    <img src="docs/assets/join-discord.svg" alt="Join our Discord">
+  </a>
   <a href="https://app.instapods.com/dashboard/pods/create?repo=https://github.com/ohadhaviv92/streamgram&branch=main&ref=streamgram">
     <img src="https://instapods.com/deploy-button.svg" alt="Deploy StreamGram on InstaPods">
   </a>
@@ -32,6 +34,7 @@
 - [Environment Variables](#environment-variables)
 - [Optional Admin Features](#optional-admin-features)
 - [Disclaimer](#disclaimer)
+- [Support the project](#support-the-project)
 
 ---
 
@@ -290,3 +293,12 @@ See [authentication and access documentation](docs/AUTHENTICATION.md) for detail
 
 > [!WARNING]
 > StreamGram is a streaming addon, not a media library. It does not host, upload, or distribute any content. You choose the Telegram sources your account can access and are solely responsible for using this software in compliance with applicable law, copyright permissions, Telegram's Terms of Service, and the terms of your client or provider.
+
+---
+
+## Support the project
+
+Enjoying StreamGram? Give the project a **star on GitHub** to help others discover it, and **join our Discord community** to share feedback, ask questions, and connect with other users.
+
+[![Star on GitHub](https://img.shields.io/badge/GitHub-Star_the_project-E3B341?logo=github&logoColor=white)](https://github.com/ohadhaviv92/streamgram)
+[![Join our Discord](https://img.shields.io/badge/Discord-Join_the_community-5865F2?logo=discord&logoColor=white)](https://discord.gg/hZ6YzUWzYK)
