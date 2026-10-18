@@ -44,10 +44,14 @@ import {
   ManifestResponseDto,
   SearchResponseDto,
   StreamsResponseDto,
+  TelegramLibraryCatalogDto,
+  TelegramLibraryMetaDto,
 } from "../../common/dto/responses.dto";
 import { UserService } from "../user/user.service";
 import { InstanceConfigService } from "../user/instance-config.service";
 import { CacheService } from "../cache/cache.service";
+import { decodeTelegramFileId, encodeTelegramFileId } from "../../utils/telegram-file-id";
+import { LibrarySearchParamsDto } from "../../common/dto/search-params.dto";
 
 @ApiTags("Stream")
 @UseGuards(InstanceProfileGuard)
@@ -90,7 +94,7 @@ export class StreamController {
 
     return {
       id: "community.telegram-stream-addon",
-      version: "1.1.0",
+      version: "1.2.0",
       name: `StreamGram ${nodeEnv === "development" ? "(Dev)" : ""}`,
       description:
         "Search and stream movies/series directly from Telegram. Access your Telegram folders and channels in Stremio.",
@@ -98,6 +102,12 @@ export class StreamController {
       resources: ["catalog", "meta", "stream"],
       types: ["movie", "series"],
       catalogs: [
+        {
+          type: "movie",
+          id: "tg_library",
+          name: "StreamGram — Telegram Search",
+          extra: [{ name: "search", isRequired: true }],
+        },
         {
           type: "series",
           id: "telegram_folders",
@@ -109,7 +119,7 @@ export class StreamController {
           name: "My Telegram Channels",
         },
       ],
-      idPrefixes: ["tg_folder_", "tg_channel_", "tmdb", "tt"],
+      idPrefixes: ["tg_file_", "tg_folder_", "tg_channel_", "tmdb", "tt"],
       behaviorHints: {
         adult: false,
         p2p: false,
@@ -126,6 +136,76 @@ export class StreamController {
         },
       ],
     };
+  }
+
+  private libraryMeta(result: MediaSearchResult, userToken: string) {
+    const id = encodeTelegramFileId(userToken, result.peer, result.messageId);
+    const name = result.caption?.split(/\r?\n/).map(line => line.trim()).find(Boolean)
+      || result.fileName || `Video ${result.messageId}`;
+    const channelTitle = result.channelTitle?.replace(/\s+/g, " ").trim();
+    const description = result.caption || result.fileName || name;
+    return {
+      id, type: "movie", name,
+      description: channelTitle ? `${description}\n\n📣 ${channelTitle}` : description,
+      poster: `${this.getBaseUrl(userToken)}/file/${id}/poster.jpg`,
+      posterShape: "landscape",
+    };
+  }
+
+  @Get("catalog/movie/tg_library/search=:search.json")
+  @Header("Cache-Control", "private, no-store")
+  @ApiOperation({ summary: "Search the account's Telegram videos using the exact query" })
+  @ApiParam({ name: "search", type: String })
+  @ApiResponse({ status: 200, type: TelegramLibraryCatalogDto })
+  @ApiResponse({ status: 503, description: "Telegram search temporarily unavailable" })
+  async searchLibrary(@Req() req: Request, @Param() params: LibrarySearchParamsDto) {
+    // Express has already decoded the path parameter. Do not decode it again.
+    if (!params.search.trim()) return { metas: [] };
+    try {
+      const results = await this.telegramService.searchLibrary(req.user, params.search);
+      return { metas: results.map(result => this.libraryMeta(result, req.user.token)) };
+    } catch {
+      throw new ServiceUnavailableException("Telegram search is temporarily unavailable");
+    }
+  }
+
+  @Get("meta/movie/tg_file_:fileId.json")
+  @Header("Cache-Control", "private, no-store")
+  @ApiOperation({ summary: "Get a single Telegram video item" })
+  @ApiResponse({ status: 200, type: TelegramLibraryMetaDto })
+  @ApiResponse({ status: 503, description: "Telegram video temporarily unavailable" })
+  async getLibraryMeta(@Req() req: Request, @Param("fileId") fileId: string) {
+    const reference = decodeTelegramFileId(req.user.token, `tg_file_${fileId}`);
+    if (!reference) return { meta: null };
+    try {
+      const result = await this.telegramService.getLibraryFile(req.user, reference.peer, reference.messageId);
+      return { meta: result ? this.libraryMeta(result, req.user.token) : null };
+    } catch {
+      throw new ServiceUnavailableException("Telegram video is temporarily unavailable");
+    }
+  }
+
+  @Get("file/:id/poster.jpg")
+  @Header("Cache-Control", "private, max-age=3600")
+  @ApiOperation({ summary: "Fetch a Telegram video thumbnail on demand" })
+  async getLibraryPoster(@Req() req: Request, @Param("id") id: string, @Res() res: Response): Promise<void> {
+    const reference = decodeTelegramFileId(req.user.token, id);
+    const controller = new AbortController();
+    const abort = () => controller.abort();
+    res.once("close", abort);
+    try {
+      const image = reference ? await this.telegramService.getLibraryThumbnail(
+        req.user, reference.peer, reference.messageId, controller.signal,
+      ) : null;
+      if (res.destroyed) return;
+      if (image) {
+        res.type("image/jpeg").send(image);
+      } else {
+        res.redirect(302, `${this.getBaseUrl()}/logo-icon-only.png`);
+      }
+    } finally {
+      res.off("close", abort);
+    }
   }
 
   @Get("configure")
@@ -612,6 +692,19 @@ export class StreamController {
     @Param("idWithEpisode") idWithEpisode: string,
   ): Promise<StreamsResponseDto> {
     const user = req.user;
+
+    if (idWithEpisode.startsWith("tg_file_")) {
+      const reference = decodeTelegramFileId(user.token, idWithEpisode);
+      if (type !== "movie" || !reference) return { streams: [] };
+      try {
+        const file = await this.telegramService.getLibraryFile(user, reference.peer, reference.messageId);
+        if (!file) return { streams: [] };
+        const stream = formatStreamForStremio(user.token, file, undefined, this.getBaseUrl(user.token), user.language);
+        return { streams: stream ? [stream] : [] };
+      } catch {
+        throw new ServiceUnavailableException("Telegram video is temporarily unavailable");
+      }
+    }
 
     try {
       const decoded = decodeURIComponent(idWithEpisode);

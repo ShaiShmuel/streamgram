@@ -40,6 +40,7 @@
 
 ## Features
 
+- 🔎 **Telegram file search** — search directly from Stremio or Nuvio to see up to 100 matching videos from your Telegram account. Each result opens as its own item with one playback stream. Thumbnails load on demand, with the StreamGram logo as a fallback; images are not stored on the server. Refresh or reinstall the addon after upgrading to load the new search catalog.
 - 🔍 **Global search** — open any movie or episode in Stremio and StreamGram searches across your entire connected Telegram account automatically.
 - 📺 **Stream provider** — returns direct stream links for any title Stremio resolves, no source setup required.
 - 📂 **Catalog addon** — optionally select specific Telegram folders or channels to appear as browsable catalogs inside Stremio, so you can explore and play your library directly.

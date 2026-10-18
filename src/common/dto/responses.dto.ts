@@ -102,6 +102,36 @@ export class StreamsResponseDto {
   streams: StreamDto[];
 }
 
+export class TelegramLibraryItemDto {
+  @ApiProperty({ description: "Signed account-scoped Telegram file ID" })
+  id: string;
+
+  @ApiProperty({ enum: ["movie"] })
+  type: string;
+
+  @ApiProperty({ description: "First nonempty caption line, or the filename" })
+  name: string;
+
+  @ApiProperty()
+  description: string;
+
+  @ApiProperty({ description: "Private URL that fetches the thumbnail on demand" })
+  poster: string;
+
+  @ApiProperty({ enum: ["landscape"] })
+  posterShape: string;
+}
+
+export class TelegramLibraryCatalogDto {
+  @ApiProperty({ type: [TelegramLibraryItemDto], description: "Up to 100 matching video messages" })
+  metas: TelegramLibraryItemDto[];
+}
+
+export class TelegramLibraryMetaDto {
+  @ApiProperty({ type: TelegramLibraryItemDto, nullable: true })
+  meta: TelegramLibraryItemDto | null;
+}
+
 export class ManifestResponseDto {
   @ApiProperty()
   id: string;

@@ -9,7 +9,7 @@ import { Logger, LogLevel } from "teleproto/extensions/Logger";
 import { CustomMessage as Message } from "teleproto/tl/custom/message";
 import { EntityLike } from "teleproto/define";
 import bigInt from "big-integer";
-import { getInputPeer } from "teleproto/Utils";
+import { getInputPeer, strippedPhotoToJpg } from "teleproto/Utils";
 import { computeCheck } from "teleproto/Password";
 import { CacheService } from "../cache/cache.service";
 import { MediaDetails } from "../tmdb/types";
@@ -68,6 +68,7 @@ const TITLE_SPLIT_SYMBOLS = [":", "-"];
 
 @Injectable()
 export class TelegramNestService {
+  private activeLibraryThumbnails = 0;
   private readonly activeControllers = new Set<AbortController>();
   private readonly downloadCooldowns = new WeakMap<TelegramClient, number>();
   private readonly seriesChatSearchCache = new WeakMap<TelegramClient, Map<string, {
@@ -1301,6 +1302,176 @@ export class TelegramNestService {
     }
 
     return results;
+  }
+
+  /** Raw account search: preserve the user's query and Telegram's result order. */
+  async searchLibrary(user: InstanceProfile, query: string): Promise<MediaSearchResult[]> {
+    if (!query.trim()) return [];
+    return this.cache.remember(`u:${user.token}:library:${query}`, 60, async () => {
+      const client = await this.getClientForUser(user.token, user.session_string);
+      const release = this.clientManager.retainClient(client);
+      const results: MediaSearchResult[] = [];
+      const seen = new Set<string>();
+      const cursors = new Set<string>();
+      let offsetRate = 0;
+      let offsetId = 0;
+      let offsetPeer: Api.TypeInputPeer = new Api.InputPeerEmpty();
+      try {
+        for (let page = 0; page < 5 && results.length < 100; page++) {
+          let response: Api.messages.TypeMessages;
+          try {
+            response = await client.invoke(new Api.messages.SearchGlobal({
+              q: query, filter: new Api.InputMessagesFilterEmpty(),
+              minDate: 0, maxDate: 0, offsetRate, offsetPeer, offsetId, limit: 100,
+            }));
+          } catch (error) {
+            if (!results.length) throw error;
+            break;
+          }
+          if (!(response instanceof Api.messages.Messages || response instanceof Api.messages.MessagesSlice)) break;
+          const entities = new Map<string, EntityLike>();
+          for (const chat of response.chats) {
+            const kind = chat instanceof Api.Channel || chat instanceof Api.ChannelForbidden ? "channel" : "chat";
+            entities.set(`${kind}:${chat.id}`, chat);
+          }
+          for (const user of response.users) entities.set(`user:${user.id}`, user);
+          const messages = response.messages.filter((m): m is Api.Message => m instanceof Api.Message);
+          const resolvePeer = async (message: Api.Message): Promise<PlaybackPeer | undefined> => {
+            if (!message.peerId) return undefined;
+            const entity = entities.get(this.peerKey(message.peerId));
+            const peer = entity && this.playbackPeer(entity, message.peerId);
+            if (peer) return peer;
+            try {
+              return this.playbackPeer(await client.getInputEntity(message.peerId), message.peerId);
+            } catch {
+              return undefined;
+            }
+          };
+          for (const message of messages) {
+            if (!this.isVideoFromSearchResult(message)) continue;
+            const peer = await resolvePeer(message);
+            if (!peer) continue;
+            const key = `${peer.kind}:${peer.id}:${message.id}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            const entity = message.peerId ? entities.get(this.peerKey(message.peerId)) : undefined;
+            results.push(this.libraryResult(message, peer, this.librarySourceTitle(entity)));
+            if (results.length === 100) break;
+          }
+          if (response instanceof Api.messages.Messages || response.messages.length < 100) break;
+          const last = messages[messages.length - 1];
+          if (!last) break;
+          const peer = await resolvePeer(last);
+          if (!peer) break;
+          const rate = response.nextRate ?? last.date;
+          const cursor = `${peer.kind}:${peer.id}:${last.id}:${rate}`;
+          if (cursors.has(cursor)) break;
+          cursors.add(cursor);
+          offsetId = last.id;
+          offsetRate = rate;
+          offsetPeer = this.inputPeer(peer);
+        }
+        return results;
+      } finally {
+        release();
+      }
+    });
+  }
+
+  private librarySourceTitle(entity: unknown): string | undefined {
+    if (entity instanceof Api.Channel || entity instanceof Api.ChannelForbidden ||
+      entity instanceof Api.Chat || entity instanceof Api.ChatForbidden) return entity.title;
+    if (entity instanceof Api.User) {
+      return entity.self ? "Saved Messages" : [entity.firstName, entity.lastName].filter(Boolean).join(" ") || undefined;
+    }
+    return undefined;
+  }
+
+  private libraryResult(message: Api.Message, peer: PlaybackPeer, channelTitle?: string): MediaSearchResult {
+    return {
+      peer, chatId: peer.id, messageId: message.id,
+      fileName: this.extractFileNameFromSearchResult(message),
+      fileSize: this.extractFileSizeFromSearchResult(message),
+      mimeType: this.extractMimeTypeFromSearchResult(message),
+      caption: message.message || null,
+      channelTitle,
+    };
+  }
+
+  private async readLibraryMessage<T>(
+    user: InstanceProfile, peer: PlaybackPeer, messageId: number,
+    read: (client: TelegramClient, message: Api.Message) => Promise<T>,
+  ): Promise<T | null> {
+    const client = await this.getClientForUser(user.token, user.session_string);
+    const release = this.clientManager.retainClient(client);
+    try {
+      const messages = await client.getMessages(this.inputPeer(peer), { ids: messageId });
+      const message = messages[0];
+      if (!(message instanceof Api.Message) || !this.isVideoFromSearchResult(message)) return null;
+      return await read(client, message);
+    } catch (error) {
+      const code = (error as { errorMessage?: string }).errorMessage;
+      if (code && ["MESSAGE_ID_INVALID", "CHANNEL_PRIVATE", "CHANNEL_INVALID", "CHAT_ID_INVALID", "PEER_ID_INVALID", "USER_ID_INVALID"].includes(code)) return null;
+      throw error;
+    } finally {
+      release();
+    }
+  }
+
+  async getLibraryFile(user: InstanceProfile, peer: PlaybackPeer, messageId: number): Promise<MediaSearchResult | null> {
+    return this.readLibraryMessage(user, peer, messageId, async (_client, message) => {
+      let channelTitle: string | undefined;
+      try {
+        channelTitle = this.librarySourceTitle(await message.getChat());
+      } catch {
+        // Source labels are optional; a failed lookup must not prevent playback.
+      }
+      return this.libraryResult(message, peer, channelTitle);
+    });
+  }
+
+  /** No image cache: retain at most four small thumbnails during active requests. */
+  async getLibraryThumbnail(user: InstanceProfile, peer: PlaybackPeer, messageId: number, signal: AbortSignal): Promise<Buffer | null> {
+    if (signal.aborted || this.activeLibraryThumbnails >= 4) return null;
+    this.activeLibraryThumbnails++;
+    const maximum = 2 * 1024 * 1024;
+    try {
+      return await this.readLibraryMessage(user, peer, messageId, async (client, message) => {
+        if (signal.aborted || !(message.media instanceof Api.MessageMediaDocument) || !(message.media.document instanceof Api.Document)) return null;
+        const document = message.media.document;
+        const sizeOf = (thumb: Api.TypePhotoSize): number => {
+          if (thumb instanceof Api.PhotoSize) return thumb.size;
+          if (thumb instanceof Api.PhotoSizeProgressive) return Math.max(0, ...thumb.sizes);
+          if (thumb instanceof Api.PhotoCachedSize || thumb instanceof Api.PhotoStrippedSize) return thumb.bytes.length + 1024;
+          return 0;
+        };
+        const thumbs = (document.thumbs || []).filter(t => sizeOf(t) > 0 && sizeOf(t) <= maximum);
+        thumbs.sort((a, b) => sizeOf(b) - sizeOf(a));
+        const thumb = thumbs[0];
+        if (!thumb) return null;
+        if (thumb instanceof Api.PhotoStrippedSize) return strippedPhotoToJpg(thumb.bytes);
+        if (thumb instanceof Api.PhotoCachedSize) return Buffer.from(thumb.bytes);
+        const location = new Api.InputDocumentFileLocation({
+          id: document.id, accessHash: document.accessHash,
+          fileReference: document.fileReference, thumbSize: thumb.type,
+        });
+        const chunks: Buffer[] = [];
+        let size = 0;
+        for await (const chunk of client.iterDownload(location, {
+          dcId: document.dcId, requestSize: 64 * 1024, limit: maximum + 64 * 1024,
+          signal, requestTimeout: 10000,
+        })) {
+          size += chunk.length;
+          if (size > maximum || signal.aborted) return null;
+          chunks.push(chunk);
+        }
+        return size ? Buffer.concat(chunks, size) : null;
+      });
+    } catch {
+      return null;
+    } finally {
+      this.activeLibraryThumbnails--;
+    }
   }
 
   private peerKey(peer: Api.TypePeer): string {

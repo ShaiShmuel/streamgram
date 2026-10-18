@@ -7,7 +7,15 @@ import {
   ValidatorConstraint,
   ValidatorConstraintInterface,
   ValidationArguments,
+  MaxLength,
 } from "class-validator";
+
+export class LibrarySearchParamsDto {
+  @ApiProperty({ description: "Exact Telegram search query" })
+  @IsString()
+  @MaxLength(1024)
+  search: string;
+}
 
 export class MovieSearchDto {
   @ApiProperty({
