@@ -241,8 +241,8 @@ const he = {
   "Search language": "שפת חיפוש",
   "Use instance default": "ברירת מחדל של המופע",
   "Channel and folder catalogs (optional)": "קטלוגי ערוצים ותיקיות (אופציונלי)",
-  "Browse selected folders and channels inside Stremio. You can install without selecting any.":
-    "דפדפו בתיקיות ובערוצים נבחרים בסטרימיו. ניתן להתקין גם ללא בחירה.",
+  "Select Telegram channels and folders to add them as catalogs in Stremio and browse their content. Click Save catalogs to apply your selection. This step is optional.":
+    "בחרו ערוצים ותיקיות מטלגרם כדי להוסיף אותם כקטלוגים בסטרימיו ולדפדף בתוכן שלהם. לחצו על ״שמירת קטלוגים״ כדי להחיל את הבחירה. שלב זה אינו חובה.",
   "Load folders and channels": "טעינת תיקיות וערוצים",
   "Refresh folders and channels": "רענון תיקיות וערוצים",
   Folders: "תיקיות",
