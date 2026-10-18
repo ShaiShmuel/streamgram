@@ -1,5 +1,5 @@
 export type PlaybackPeer = { id: string } & (
-  { kind: "chat" } | { kind: "channel" | "user"; accessHash: string }
+  { kind: "chat" } | { kind: "self" } | { kind: "channel" | "user"; accessHash: string }
 );
 
 export interface MediaSearchResult {

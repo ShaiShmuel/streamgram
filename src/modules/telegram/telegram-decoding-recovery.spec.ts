@@ -109,6 +109,7 @@ describe("Telegram RPC decoding recovery", () => {
   });
 
   it.each<PlaybackPeer>([
+    { kind: "self", id: "123" },
     { kind: "chat", id: "123" },
     { kind: "user", id: "123", accessHash: "9223372036854775807" },
     { kind: "channel", id: "123", accessHash: "-9223372036854775808" },
@@ -118,7 +119,9 @@ describe("Telegram RPC decoding recovery", () => {
     initialize.mockResolvedValue(client);
     await service.preparePlayback("account", "session", reference, 7, new AbortController().signal);
     const input = (client.getMessages as jest.Mock).mock.calls[0][0];
-    if (reference.kind === "chat") {
+    if (reference.kind === "self") {
+      expect(input).toBeInstanceOf(Api.InputPeerSelf);
+    } else if (reference.kind === "chat") {
       expect(input).toBeInstanceOf(Api.InputPeerChat);
       expect(input.chatId.toString()).toBe(reference.id);
     } else {

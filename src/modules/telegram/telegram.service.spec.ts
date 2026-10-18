@@ -630,6 +630,72 @@ describe("TelegramNestService - Tag Feature", () => {
       return new Api.messages.Messages({ messages, chats, users: [], topics: [] });
     }
 
+    it.each([false, true])("keeps a forwarded Saved Messages video from global search (tagged: %s)", async (tagged) => {
+      const selfPeer = new Api.PeerUser({ userId: bigInt(999) });
+      const savedVideo = fixture(Api.Message.prototype, {
+        ...video, id: 70, peerId: selfPeer,
+        fwdFrom: new Api.MessageFwdHeader({ date: 0, fromId: channelPeer, channelPost: 7 }),
+      });
+      const tag = fixture(Api.Message.prototype, {
+        id: 71, peerId: selfPeer, message: "/tag tt123",
+        replyTo: new Api.MessageReplyHeader({ replyToMsgId: 70 }),
+      });
+      const client = {
+        connected: true,
+        invoke: jest.fn().mockResolvedValue(searchResponse([tagged ? tag : savedVideo], [])),
+        getInputEntity: jest.fn().mockResolvedValue(new Api.InputPeerSelf()),
+        getMessages: jest.fn().mockResolvedValue([savedVideo]),
+      };
+      const results = await (service as any).performGlobalSearch(client, "Movie", media, tagged ? "tt123" : undefined);
+      expect(results).toEqual([expect.objectContaining({
+        peer: { kind: "self", id: "999" }, messageId: 70,
+        channelTitle: "Saved Messages",
+        ...(tagged ? { customName: "tt123" } : {}),
+      })]);
+      expect(client.invoke).toHaveBeenCalledTimes(1);
+      const request = client.invoke.mock.calls[0][0];
+      expect(request).toBeInstanceOf(Api.messages.SearchGlobal);
+      expect(request.filter).toBeInstanceOf(Api.InputMessagesFilterEmpty);
+      expect(request.q).toBe("Movie");
+      if (tagged) {
+        expect(client.getMessages).toHaveBeenCalledWith(expect.any(Api.InputPeerSelf), { ids: 70 });
+      }
+    });
+
+    it.each(["standalone", "missing video", "text reply"])("excludes a Saved Messages tag without a video: %s", async (scenario) => {
+      const selfPeer = new Api.PeerUser({ userId: bigInt(999) });
+      const tag = fixture(Api.Message.prototype, {
+        id: 71, peerId: selfPeer, message: "/tag tt123",
+        ...(scenario === "standalone" ? {} : {
+          replyTo: new Api.MessageReplyHeader({ replyToMsgId: 70 }),
+        }),
+      });
+      const client = {
+        connected: true,
+        invoke: jest.fn().mockResolvedValue(searchResponse([tag], [])),
+        getInputEntity: jest.fn().mockResolvedValue(new Api.InputPeerSelf()),
+        getMessages: jest.fn().mockResolvedValue(scenario === "text reply" ? [
+          fixture(Api.Message.prototype, { id: 70, peerId: selfPeer, message: "Copy this tag" }),
+        ] : []),
+      };
+      expect(await (service as any).performGlobalSearch(client, "/tag tt123", media, "tt123"))
+        .toEqual([]);
+      if (scenario === "standalone") expect(client.getMessages).not.toHaveBeenCalled();
+    });
+
+    it("keeps self peers returned by global search without requiring an access hash", async () => {
+      const savedVideo = fixture(Api.Message.prototype, {
+        ...video, peerId: new Api.PeerUser({ userId: bigInt(999) }),
+      });
+      const client = {
+        connected: true,
+        invoke: jest.fn().mockResolvedValue(searchResponse([savedVideo], [])),
+        getInputEntity: jest.fn().mockResolvedValue(new Api.InputPeerSelf()),
+      };
+      expect(await (service as any).performGlobalSearch(client, "Movie", media))
+        .toEqual([expect.objectContaining({ peer: { kind: "self", id: "999" } })]);
+    });
+
     it("matches channels by peer rather than response order or colliding group IDs", async () => {
       const group = fixture(Api.Chat.prototype, { id: bigInt(123), title: "Other Group" });
       const client = {

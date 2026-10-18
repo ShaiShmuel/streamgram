@@ -1217,6 +1217,7 @@ describe("HTTP management and personal access", () => {
       ["channel/123/-9223372036854775808/1", { kind: "channel", id: "123", accessHash: "-9223372036854775808" }],
       ["user/123/9223372036854775807/2147483647", { kind: "user", id: "123", accessHash: "9223372036854775807" }],
       ["chat/123/1", { kind: "chat", id: "123" }],
+      ["self/123/1", { kind: "self", id: "123" }],
     ] as const) {
       const response = await fetch(`${base}/${account.token}/watch/${path}`, { method: "HEAD" });
       expect(response.status).toBe(200);
@@ -1228,7 +1229,7 @@ describe("HTTP management and personal access", () => {
       "user/123/-9223372036854775809/1", "channel/123/1e3/1", "channel/123/1.5/1",
       "channel/123/abc/1", "channel/0/456/1", "channel/-123/456/1",
       "chat/9223372036854775808/1", "chat/123/0", "chat/123/-1", "chat/123/2147483648",
-      "chat/123/1.5", "channel/123/456/01",
+      "chat/123/1.5", "channel/123/456/01", "self/123/0", "self/-123/1",
     ]) {
       expect((await fetch(`${base}/${account.token}/watch/${path}`)).status).toBe(400);
     }

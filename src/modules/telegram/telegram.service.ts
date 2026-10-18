@@ -1111,6 +1111,11 @@ export class TelegramNestService {
             : "chat";
         channelTitles.set(`${kind}:${chat.id}`, chat.title);
       }
+      for (const user of searchResult.users) {
+        if (user instanceof Api.User && user.self) {
+          channelTitles.set(`user:${user.id}`, "Saved Messages");
+        }
+      }
 
       const rawMessages = (searchResult.messages as Api.TypeMessage[]).filter(
         (msg): msg is Api.Message => msg instanceof Api.Message,
@@ -1151,6 +1156,9 @@ export class TelegramNestService {
               .then((entity) => {
                 entityCache.set(peerKey, entity);
                 peerToEntity.set(peerKey, entity);
+                if (entity instanceof Api.InputPeerSelf) {
+                  channelTitles.set(peerKey, "Saved Messages");
+                }
               })
               .catch((error) => {
                 logger.debug(
@@ -1227,7 +1235,7 @@ export class TelegramNestService {
                 if (error instanceof TypeNotFoundError) throw error;
                 continue;
               }
-              const peer = this.playbackPeer(originalEntity);
+              const peer = this.playbackPeer(originalEntity, originalMessage.peerId);
               if (!peer) continue;
               results.push({
                 peer,
@@ -1272,7 +1280,7 @@ export class TelegramNestService {
             `${fileName ?? ""} ${caption ?? ""}`,
           );
 
-          const peer = this.playbackPeer(entity);
+          const peer = this.playbackPeer(entity, rawMessage.peerId);
           if (!peer) continue;
           results.push({
             peer,
@@ -1978,9 +1986,15 @@ export class TelegramNestService {
   }
 
   /** Capture a complete peer while search still has the typed Telegram entity. */
-  private playbackPeer(entity: EntityLike): PlaybackPeer | undefined {
+  private playbackPeer(entity: EntityLike, messagePeer?: Api.TypePeer): PlaybackPeer | undefined {
     try {
+      if (entity instanceof Api.User && entity.self) {
+        return { kind: "self", id: entity.id.toString() };
+      }
       const input = getInputPeer(entity, false);
+      if (input instanceof Api.InputPeerSelf && messagePeer instanceof Api.PeerUser) {
+        return { kind: "self", id: messagePeer.userId.toString() };
+      }
       if (input instanceof Api.InputPeerChat) {
         return { kind: "chat", id: input.chatId.toString() };
       }
@@ -1997,6 +2011,7 @@ export class TelegramNestService {
   }
 
   private inputPeer(reference: PlaybackPeer): Api.TypeInputPeer {
+    if (reference.kind === "self") return new Api.InputPeerSelf();
     if (reference.kind === "chat") return new Api.InputPeerChat({ chatId: bigInt(reference.id) });
     if (reference.kind === "channel") return new Api.InputPeerChannel({
       channelId: bigInt(reference.id), accessHash: bigInt(reference.accessHash),

@@ -797,6 +797,22 @@ export class StreamController {
     return this.streamVideo({ kind: "user", id: params.chatId, accessHash: params.accessHash }, params.messageId, req, res);
   }
 
+  @Get("watch/self/:chatId/:messageId")
+  @ApiOperation({ summary: "Stream a video from the account's Saved Messages" })
+  @ApiParam({ name: "chatId", description: "Positive account user ID" })
+  @ApiParam({ name: "messageId" })
+  @Header("Accept-Ranges", "bytes")
+  @Header("Access-Control-Allow-Origin", "*")
+  @Header("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
+  @Header("Access-Control-Allow-Headers", "Range, Content-Type")
+  async watchSelf(
+    @Param() params: WatchParamsDto,
+    @Req() req: Request,
+    @Res() res: Response,
+  ): Promise<void> {
+    return this.streamVideo({ kind: "self", id: params.chatId }, params.messageId, req, res);
+  }
+
   @Get("watch/chat/:chatId/:messageId")
   @ApiOperation({ summary: "Stream video file from Telegram" })
   @ApiParam({ name: "chatId", required: true })

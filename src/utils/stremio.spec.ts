@@ -89,6 +89,7 @@ describe("Stremio Utilities", () => {
     [{ kind: "channel" as const, id: "123", accessHash: "-9223372036854775808" }, "channel/123/-9223372036854775808"],
     [{ kind: "user" as const, id: "123", accessHash: "9223372036854775807" }, "user/123/9223372036854775807"],
     [{ kind: "chat" as const, id: "123" }, "chat/123"],
+    [{ kind: "self" as const, id: "123" }, "self/123"],
   ])("formats a complete %j peer without query parameters", (peer, path) => {
     const result = formatStreamForStremio("account", {
       peer, chatId: "123", messageId: 7, fileName: "video.mp4", fileSize: 1, mimeType: "video/mp4",

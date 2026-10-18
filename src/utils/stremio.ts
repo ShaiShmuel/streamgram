@@ -148,8 +148,8 @@ export function formatStreamForStremio(
 
   const baseUrl = (baseUrlOverride || getStreamBaseUrl()).replace(/\/$/, "");
   const { peer } = result;
-  const peerPath = peer.kind === "chat"
-    ? `chat/${peer.id}`
+  const peerPath = peer.kind === "chat" || peer.kind === "self"
+    ? `${peer.kind}/${peer.id}`
     : `${peer.kind}/${peer.id}/${peer.accessHash}`;
   const streamUrl = `${baseUrl}/watch/${peerPath}/${result.messageId}`;
 
