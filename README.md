@@ -113,7 +113,9 @@ InstaPods is the easiest way to self-host StreamGram — no server setup, no ter
 
 ## Local Installation
 
-Stremio needs a publicly reachable **domain with HTTPS** for addon and stream URLs. Local HTTP access is useful for setup, but use a public HTTPS URL when installing the addon in Stremio. We recommend [your own domain with Caddy](#recommended-domain--https-with-caddy) for automatic HTTPS. You can also use InstaPods' included HTTPS URL, or [Tailscale Funnel](#alternative-tailscale-funnel) for a provided domain and certificate.
+**Nuvio does not require HTTPS.** You can use `http://<server-ip>:3000` as your public URL, provided your Nuvio device can reach that address, and skip the [Public Domain & HTTPS](#public-domain--https) section.
+
+Stremio needs a publicly reachable **domain with HTTPS** for addon and stream URLs. Use a public HTTPS URL when installing the addon in Stremio. We recommend [your own domain with Caddy](#recommended-domain--https-with-caddy) for automatic HTTPS. You can also use InstaPods' included HTTPS URL, or [Tailscale Funnel](#alternative-tailscale-funnel) for a provided domain and certificate.
 
 ```bash
 git clone https://github.com/ohadhaviv92/streamgram.git
@@ -144,6 +146,8 @@ Add `--env-file .env` to `docker run` when supplying environment variables inste
 ---
 
 ## Public Domain & HTTPS
+
+**Nuvio users can skip this section:** HTTP is supported, so a domain and HTTPS setup are not required.
 
 The Stremio addon needs a publicly reachable **domain and HTTPS** for addon and stream URLs. We recommend a domain or subdomain with Caddy for regular streaming. Tailscale Funnel is an alternative that supplies both a domain and HTTPS, but its bandwidth limits can reduce streaming speed. InstaPods already includes a public HTTPS URL.
 
@@ -221,9 +225,9 @@ Open that URL to finish setup and install the addon. Keep admin protection enabl
 ## Server Configuration & Setup
 
 1. **Choose admin protection (optional).** Enabled by default; use a password of at least eight characters, or disable it if you do not need it. Without protection, anyone who can reach the instance can manage it.
-2. **Configure the instance.** Enter the public HTTPS URL, Telegram API ID/hash from [my.telegram.org](https://my.telegram.org), and TMDB v4 Read Access Token from [TMDB settings](https://www.themoviedb.org/settings/api). Environment values prefill the wizard; blank secrets preserve saved values.
+2. **Configure the instance.** Enter the server URL (HTTP is supported for Nuvio; Stremio requires HTTPS), Telegram API ID/hash from [my.telegram.org](https://my.telegram.org), and TMDB v4 Read Access Token from [TMDB settings](https://www.themoviedb.org/settings/api). Environment values prefill the wizard; blank secrets preserve saved values.
 3. **Connect Telegram.** Authenticate using QR or phone code, including Telegram two-step verification when required.
-4. **Install in Stremio.** Use the prominent install button or copy `https://your-domain/{user_token}/manifest.json`. Folder/channel catalogs are optional; you can install before selecting any.
+4. **Install in Stremio or Nuvio.** Use the prominent install button or copy the addon URL: `https://your-domain/{user_token}/manifest.json` for Stremio, or `http://<server-ip>:3000/{user_token}/manifest.json` for Nuvio over HTTP. Folder/channel catalogs are optional; you can install before selecting any.
 
 After initialization, `/` opens the admin dashboard with Overview, Accounts, Invitations, Server settings, Admin settings, and Tutorials. Admins can connect accounts directly or create seven-day, single-use invitations. Copy an invitation when it is created; its secret is not shown again.
 
@@ -263,7 +267,7 @@ All values below are optional when using the setup wizard. Saved values in `data
 
 | Variable             | Description                                                                                          |
 | -------------------- | ---------------------------------------------------------------------------------------------------- |
-| `PUBLIC_URL`         | Public HTTPS base URL with a domain, used to create addon and stream links. For example, `https://yourdomain.com`. |
+| `PUBLIC_URL`         | Server base URL used to create addon and stream links. Nuvio supports HTTP, e.g. `http://<server-ip>:3000`; Stremio requires HTTPS, e.g. `https://yourdomain.com`. |
 | `TELEGRAM_API_ID`    | Telegram API ID from [my.telegram.org](https://my.telegram.org).                                     |
 | `TELEGRAM_API_HASH`  | Telegram API hash from [my.telegram.org](https://my.telegram.org).                                   |
 | `TMDB_BEARER_TOKEN`  | TMDB v4 Read Access Token.                                                                           |

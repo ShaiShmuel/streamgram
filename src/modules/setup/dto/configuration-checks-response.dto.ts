@@ -1,8 +1,8 @@
 import { ApiProperty } from "@nestjs/swagger";
 
 export class ConfigurationCheckDto {
-  @ApiProperty({ enum: ["passed", "failed", "unverified"] })
-  status: "passed" | "failed" | "unverified";
+  @ApiProperty({ enum: ["passed", "failed", "unverified", "skipped"] })
+  status: "passed" | "failed" | "unverified" | "skipped";
 
   @ApiProperty()
   message: string;

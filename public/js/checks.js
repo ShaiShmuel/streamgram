@@ -25,10 +25,10 @@ export function bindChecks(root, { saved = false, warning = null } = {}) {
     try {
       const data = await api("/setup/checks", { method: "POST" });
       if (!current(id)) return;
-      const labels = { telegram: "Telegram API", tmdb: "TMDB API", streamingHttps: "Streaming HTTPS" };
-      const statuses = { passed: "Passed", failed: "Failed", unverified: "Unverified" };
+      const labels = { telegram: "Telegram API", tmdb: "TMDB API", streamingHttps: "HTTPS for Stremio" };
+      const statuses = { passed: "Passed", failed: "Failed", unverified: "Unverified", skipped: "Skipped" };
       if (warning) {
-        const issues = Object.entries(labels).filter(([key]) => data[key].status !== "passed");
+        const issues = Object.entries(labels).filter(([key]) => ["failed", "unverified"].includes(data[key].status));
         warning.hidden = issues.length === 0;
         warning.innerHTML = issues.length
           ? `<strong>${t("Connections need attention")}</strong><ul>${issues.map(([key, label]) => `<li><strong>${t(label)} (${t(statuses[data[key].status])})</strong>: ${esc(t(data[key].message))}</li>`).join("")}</ul><a href="#settings">${t("Open server settings")}</a>`

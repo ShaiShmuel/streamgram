@@ -713,3 +713,29 @@ test('admin routes open the matching settings page without loading account lists
     assert.equal(calls.includes('/admin/accounts'), false);
   }
 });
+
+test('HTTP skips the Stremio HTTPS check without a connection warning, while API failures still warn', async () => {
+  const results = { innerHTML: '', textContent: '' }, retry = {}, warning = {};
+  const root = { isConnected: true, querySelector: selector => selector === '#check-configuration' ? retry : results };
+  const data = {
+    checkedAt: '2026-10-24T12:00:00Z',
+    telegram: { status: 'passed', message: 'Telegram accepted the API ID and hash.' },
+    tmdb: { status: 'passed', message: 'TMDB API is working.' },
+    streamingHttps: { status: 'skipped', message: 'Nuvio supports HTTP.' },
+  };
+  const context = vm.createContext({
+    t: text => text, esc: text => String(text), language: 'en',
+    location: { hash: '#settings' }, api: async () => data,
+  });
+  vm.runInContext(source('checks.js'), context);
+  const checks = context.bindChecks(root, { warning });
+  await checks.check();
+  assert.equal(warning.hidden, true);
+  assert.match(results.innerHTML, /HTTPS for Stremio/);
+  assert.match(results.innerHTML, /badge neutral">Skipped/);
+  data.tmdb = { status: 'failed', message: 'TMDB rejected the bearer token.' };
+  await checks.check();
+  assert.equal(warning.hidden, false);
+  assert.match(warning.innerHTML, /TMDB API/);
+  assert.doesNotMatch(warning.innerHTML, /HTTPS for Stremio/);
+});

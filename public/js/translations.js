@@ -1,4 +1,10 @@
 export const ru = {
+  "HTTPS for Stremio": "HTTPS для Stremio",
+  "Skipped": "Пропущено",
+  "Nuvio supports HTTP; HTTPS is required for Stremio. Use a server URL your playback device can reach.": "Nuvio поддерживает HTTP; для Stremio нужен HTTPS. Укажите адрес сервера, доступный устройству воспроизведения.",
+  "Nuvio supports HTTP and does not require HTTPS. The HTTPS check is only needed for Stremio; HTTP reachability was not checked.": "Nuvio поддерживает HTTP и не требует HTTPS. Проверка HTTPS нужна только для Stremio; доступность по HTTP не проверялась.",
+  "Use an HTTP or HTTPS server URL without credentials, query parameters, or fragments.": "Используйте HTTP- или HTTPS-адрес сервера без данных входа, параметров запроса или фрагментов.",
+
   "Server settings": "Настройки сервера",
   "Admin settings": "Настройки администратора",
 
@@ -284,6 +290,12 @@ export const ru = {
   "Removes cached search results, message details, folders, and channel video lists for all accounts.": "Удаляет из кэша результаты поиска, данные сообщений, папки и списки видео каналов всех аккаунтов."
 };
 export const ar = {
+  "HTTPS for Stremio": "HTTPS لـ Stremio",
+  "Skipped": "تم التخطي",
+  "Nuvio supports HTTP; HTTPS is required for Stremio. Use a server URL your playback device can reach.": "يدعم Nuvio بروتوكول HTTP؛ ويتطلب Stremio بروتوكول HTTPS. استخدم عنوان خادم يمكن لجهاز التشغيل الوصول إليه.",
+  "Nuvio supports HTTP and does not require HTTPS. The HTTPS check is only needed for Stremio; HTTP reachability was not checked.": "يدعم Nuvio بروتوكول HTTP ولا يتطلب HTTPS. فحص HTTPS مطلوب فقط لـ Stremio؛ لم يتم فحص إمكانية الوصول عبر HTTP.",
+  "Use an HTTP or HTTPS server URL without credentials, query parameters, or fragments.": "استخدم عنوان خادم HTTP أو HTTPS دون بيانات دخول أو معاملات استعلام أو أجزاء إضافية.",
+
   "Server settings": "إعدادات الخادم",
   "Admin settings": "إعدادات المسؤول",
 
@@ -569,6 +581,12 @@ export const ar = {
   "Removes cached search results, message details, folders, and channel video lists for all accounts.": "يمسح نتائج البحث وتفاصيل الرسائل والمجلدات وقوائم فيديوهات القنوات المخزنة مؤقتًا لجميع الحسابات."
 };
 export const es = {
+  "HTTPS for Stremio": "HTTPS para Stremio",
+  "Skipped": "Omitida",
+  "Nuvio supports HTTP; HTTPS is required for Stremio. Use a server URL your playback device can reach.": "Nuvio admite HTTP; Stremio requiere HTTPS. Usa una URL del servidor accesible desde tu dispositivo de reproducción.",
+  "Nuvio supports HTTP and does not require HTTPS. The HTTPS check is only needed for Stremio; HTTP reachability was not checked.": "Nuvio admite HTTP y no requiere HTTPS. La comprobación HTTPS solo es necesaria para Stremio; no se comprobó la accesibilidad por HTTP.",
+  "Use an HTTP or HTTPS server URL without credentials, query parameters, or fragments.": "Usa una URL de servidor HTTP o HTTPS sin credenciales, parámetros de consulta ni fragmentos.",
+
   "Server settings": "Configuración del servidor",
   "Admin settings": "Configuración de administración",
   "Forgot password": "Olvidé mi contraseña",

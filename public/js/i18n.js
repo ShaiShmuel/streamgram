@@ -1,5 +1,11 @@
 import { ru, ar, es } from "./translations.js";
 const he = {
+  "HTTPS for Stremio": "HTTPS לסטרימיו",
+  "Skipped": "דולגה",
+  "Nuvio supports HTTP; HTTPS is required for Stremio. Use a server URL your playback device can reach.": "Nuvio תומך ב־HTTP; סטרימיו דורש HTTPS. השתמשו בכתובת שרת שנגישה ממכשיר הצפייה שלכם.",
+  "Nuvio supports HTTP and does not require HTTPS. The HTTPS check is only needed for Stremio; HTTP reachability was not checked.": "Nuvio תומך ב־HTTP ואינו דורש HTTPS. בדיקת HTTPS נדרשת רק לסטרימיו; נגישות הכתובת ב־HTTP לא נבדקה.",
+  "Use an HTTP or HTTPS server URL without credentials, query parameters, or fragments.": "השתמשו בכתובת שרת HTTP או HTTPS ללא פרטי התחברות, פרמטרים או מקטעים.",
+
   "Server settings": "הגדרות שרת",
   "Admin settings": "הגדרות מנהל",
 

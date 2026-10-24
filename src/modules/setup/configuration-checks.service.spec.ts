@@ -108,9 +108,17 @@ describe("Configuration checks", () => {
     const result = await service.check();
     expect(result.tmdb.status).toBe([401, 403].includes(status) ? "failed" : "unverified");
   });
-  it.each(["http://stream.example", "https://user:password@stream.example", "", "https://stream.example?q=1", "https://stream.example/#fragment"])("rejects unsuitable URL %s", async (url) => {
+  it.each(["ftp://stream.example", "http://user:password@stream.example", "http://stream.example?q=1", "http://stream.example/#fragment", "https://user:password@stream.example", "", "https://stream.example?q=1", "https://stream.example/#fragment"])("rejects unsuitable URL %s", async (url) => {
     saved.publicUrl = url;
     expect((await service.check()).streamingHttps.status).toBe("failed");
+    expect(https.get).toHaveBeenCalledTimes(1);
+  });
+  it("skips HTTPS for HTTP URLs without claiming reachability or reporting failure", async () => {
+    saved.publicUrl = "http://stream.example:3000/prefix/";
+    const result = await service.check();
+    expect(result.streamingHttps.status).toBe("skipped");
+    expect(result.streamingHttps.message).toContain("Nuvio supports HTTP");
+    expect(result.streamingHttps.message).toContain("HTTP reachability was not checked");
     expect(https.get).toHaveBeenCalledTimes(1);
   });
   it.each([301, 302, 404])("rejects streaming response %s without following redirects", async (status) => {

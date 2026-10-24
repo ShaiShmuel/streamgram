@@ -83,11 +83,13 @@ export class ConfigurationChecksService {
     let url: URL;
     try {
       url = new URL(publicUrl);
-      if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash)
+      if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.search || url.hash)
         throw new Error("Invalid streaming URL");
     } catch {
-      return { status: "failed", message: "Use an HTTPS public URL without credentials, query parameters, or fragments." };
+      return { status: "failed", message: "Use an HTTP or HTTPS server URL without credentials, query parameters, or fragments." };
     }
+    if (url.protocol === "http:")
+      return { status: "skipped", message: "Nuvio supports HTTP and does not require HTTPS. The HTTPS check is only needed for Stremio; HTTP reachability was not checked." };
     // Append instead of resolving from / so reverse-proxy path prefixes survive.
     url.pathname = `${url.pathname.replace(/\/$/, "")}/setup/probe`;
     try {
